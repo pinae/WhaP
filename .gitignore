@@ -156,6 +156,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env.*
+!.env.prod.example
+!.env.db.example
+!whap/frontend/.env
+!roles/compose_hull/templates/.env.j2
 
 # Spyder project settings
 .spyderproject
@@ -216,3 +221,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Nodejs packages
+node_modules/
+
+# No Keys please!
+*.key
+id_rsa*
+id_ed25519*
+
+# Ansible runner ephemeral data does not need to live in the repo
+plays/from_runner/
+.ansible/
+*.retry
