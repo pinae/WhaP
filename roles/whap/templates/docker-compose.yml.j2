@@ -1,0 +1,157 @@
+services:
+  db:
+    image: "postgres:17-alpine"
+    container_name: whap-db
+    environment:
+      POSTGRES_USER: "{{ service_cfg.db.user }}"
+      POSTGRES_PASSWORD: "{{ service_cfg.db.password }}"
+      POSTGRES_DB: "{{ service_cfg.db.name }}"
+    volumes:
+      - "{{ service_cfg.directory }}/postgres:/var/lib/postgresql/data:rw"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  redis:
+    restart: always
+    image: "redis:{{ service_cfg.redis.version }}"
+    container_name: whap-redis
+    volumes:
+      - "{{ service_cfg.directory }}/redis_data:/data:rw"
+  influxdb:
+    image: "influxdb:{{ service_cfg.influxdb.version }}"
+    container_name: whap-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: "setup"
+      DOCKER_INFLUXDB_INIT_USERNAME: "{{ service_cfg.influxdb.admin_username }}"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "{{ service_cfg.influxdb.admin_password }}"
+      DOCKER_INFLUXDB_INIT_ORG: "{{ service_cfg.influxdb.org }}"
+      DOCKER_INFLUXDB_INIT_BUCKET: "{{ service_cfg.influxdb.bucket }}"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "{{ service_cfg.influxdb.token }}"
+    volumes:
+      - "{{ service_cfg.directory }}/influxdb_data:/var/lib/influxdb2:rw"
+    restart: unless-stopped
+  migrate:
+    # One-shot: apply all pending Alembic migrations before the app starts, so a
+    # new migration is never forgotten on deploy. Uses the same built image as
+    # the backend. FLASK_APP points at the app factory (not run.py) so this does
+    # NOT start run.py's Redis log-consumer thread. Runs once and exits; backend
+    # and worker wait for it to complete successfully.
+    build:
+      context: "{{ service_cfg.directory }}/whap/backend"
+      dockerfile: Dockerfile
+      args:
+        USER_ID: "{{ service_cfg.uid }}"
+        GROUP_ID: "{{ service_cfg.gid }}"
+    container_name: whap-migrate
+    env_file: "{{ service_cfg.directory }}/whap/backend/.env.prod"
+    environment:
+      FLASK_APP: "app:create_app"
+    command: flask db upgrade
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+  backend:
+    build:
+      context: "{{ service_cfg.directory }}/whap/backend"
+      dockerfile: Dockerfile
+      args:
+        USER_ID: "{{ service_cfg.uid }}"
+        GROUP_ID: "{{ service_cfg.gid }}"
+    container_name: whap-backend
+    env_file: "{{ service_cfg.directory }}/whap/backend/.env.prod"
+    volumes:
+      # Mount the ansible project directory from the host into the container
+      - "{{ service_cfg.directory }}/ansible_project:/app/ansible_project:ro"
+      # Mount the roles to make the workers available
+      - "{{ service_cfg.directory }}/roles:/backend/roles:ro"
+      # Volume for ansible-runner artifacts (logs, etc.)
+      - "{{ service_cfg.directory }}/ansible_runner_data:/backend/ansible_runner:rw"
+      # Volume for documentation
+      - "{{ service_cfg.directory }}/whap/backend/docs:/backend/docs:ro"
+      # Datasets
+      - "{{ service_cfg.projects_dir }}/DATASETS:/data/DATASETS:ro"
+    # Socket.IO runs in threading async mode (eventlet was removed), so the
+    # eventlet worker class would fail to import. Use a SINGLE gthread worker:
+    # run.py starts exactly one Redis log-consumer per process, so multiple web
+    # workers would spawn competing consumers (splitting/dropping the live log
+    # stream) and would also require sticky sessions at nginx for Socket.IO.
+    # One worker with many threads avoids both. --timeout 120 keeps long-lived
+    # Socket.IO connections from being reaped.
+    command: >
+      gunicorn --workers 1 --worker-class gthread --threads 50 --timeout 120 -b 0.0.0.0:5000 run:app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  worker:
+    build:
+      context: "{{ service_cfg.directory }}/whap/backend"
+      dockerfile: Dockerfile
+      args:
+        USER_ID: "{{ service_cfg.uid }}"
+        GROUP_ID: "{{ service_cfg.gid }}"
+    container_name: whap-worker
+    user: "0:0"
+    env_file: "{{ service_cfg.directory }}/whap/backend/.env.prod"
+    volumes:
+      # Worker also needs access to the same ansible project and keys
+      - "{{ service_cfg.directory }}/ansible_project:/app/ansible_project:ro"
+      - "{{ service_cfg.directory }}/roles:/backend/roles:ro"
+      - "{{ service_cfg.directory }}/ansible_runner_data:/backend/ansible_runner:rw"
+      - "{{ service_cfg.directory }}/inventory/:/backend/inventory:rw"
+      - "{{ service_cfg.directory }}/inventory/host_vars:/backend/inventory/host_vars:ro"
+      - "{{ service_cfg.directory }}/inventory/group_vars:/backend/inventory/group_vars:ro"
+      - "{{ service_cfg.directory }}/ssh_keys/id_rsa:/home/pina/.ssh/id_rsa_compute:ro"
+      - "{{ service_cfg.projects_dir }}:/data/:rw"
+      - "{{ service_cfg.projects_dir }}/DATASETS:/data/DATASETS:ro"
+      - "{{ service_cfg.ssh_key_path }}:/home/pina/.ssh/id_ed25519:ro"
+      - "{{ service_cfg.ssh_key_path }}.pub:/home/pina/.ssh/id_ed25519.pub:ro"
+      - "{{ service_cfg.ssh_known_hosts_path }}:/home/pina/.ssh/known_hosts:rw"
+    command: python worker.py
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+    restart: unless-stopped
+  nginx:
+    build:
+      context: "{{ service_cfg.directory }}/whap/frontend"
+      dockerfile: Dockerfile
+    container_name: whap-nginx
+    depends_on:
+      backend:
+        condition: service_started
+      worker:
+        condition: service_started
+    restart: unless-stopped
+    labels:
+      <<: *base_labels
+{% if service_cfg.separate_traefik_network.use | default(true) %}
+      traefik.docker.network: "{{ service_cfg.separate_traefik_network.name }}"
+{% endif %}
+    networks:
+      - default
+{% if service_cfg.separate_traefik_network.use | default(true) %}
+      - {{ service_cfg.separate_traefik_network.name }}
+{% endif %}
+
+{% if service_cfg.separate_traefik_network.use | default(true) %}
+networks:
+  {{ service_cfg.separate_traefik_network.name | default("traefik") }}:
+    external: true
+{% endif %}

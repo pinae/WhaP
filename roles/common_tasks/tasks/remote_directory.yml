@@ -1,0 +1,15 @@
+- name: "Ensure /data/{{ service_cfg.user }} exists"
+  file:
+    path: "/data/{{ service_cfg.user }}"
+    state: directory
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "775"
+
+- name: "Ensure /data/{{ service_cfg.user }}/{{ service_cfg.project_name }} exists"
+  file:
+    path: "/data/{{ service_cfg.user }}/{{ service_cfg.project_name }}"
+    state: directory
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "755"

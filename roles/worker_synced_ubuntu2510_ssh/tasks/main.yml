@@ -1,0 +1,45 @@
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: build_directory
+
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: remote_directory
+
+- ansible.builtin.import_role:
+    name: compose_hull
+    tasks_from: facts
+  vars:
+    service_defaults:
+      name: worker_synced_ubuntu2510_ssh
+      traefik: false
+      external: false
+      watchtower: false
+      autoheal: false
+      gpus: ["0"]
+
+- name: "Define project home path"
+  ansible.builtin.set_fact:
+    project_home_path: "/data/{{ service_cfg.user }}/{{ service_cfg.project_name }}"
+
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: populate_home_with_console_settings
+
+- ansible.builtin.import_role:
+    name: compose_hull
+    tasks_from: user_info
+
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: ensure_network
+
+- name: Create local password file for Docker Secret
+  ansible.builtin.copy:
+    content: "{{ service_cfg.password }}"
+    dest: "{{ service_cfg.directory }}/secret_password.txt"
+    mode: '0600'
+
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: start_container

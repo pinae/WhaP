@@ -1,0 +1,12 @@
+# All main tasks except deploy_docker
+# Useful for cases such as Traefik where other preparations need to be
+# inserted between create_directories and deploy_docker
+
+- include_tasks: facts.yml
+  tags: [ always ]
+
+- include_tasks: user_info.yml
+  tags: [ always ]
+
+- include_tasks: create_directories.yml
+  tags: [ always ]

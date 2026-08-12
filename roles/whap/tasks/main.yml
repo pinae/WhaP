@@ -1,0 +1,77 @@
+- ansible.builtin.import_role:
+    name: compose_hull
+    tasks_from: prepare
+  vars:
+    service_defaults:
+      directory: "{{ docker_dir }}/whap"
+      subdirs: ["postgres", "ansible_project", "ssh_keys", "ansible_runner_data", "influxdb_data"]
+      name: "whap"
+      port: 80
+      traefik: true
+      external: true
+      watchtower: false
+      autoheal: true
+      uid: 3000
+      gid: 3000
+      db:
+        version: "17-alpine"
+      redis:
+        version: "6.2"
+      influxdb:
+        version: "3-core"
+        org: "whap_org"
+        admin_username: "influx_admin"
+        admin_password: "sectretPASSWORD"
+        token: "sectretTOKEN"
+        bucket: "metrics"
+      separate_traefik_network:
+        use: true
+        name: "ix-traefik_default"
+
+#- name: Get the git repository
+#  ansible.builtin.git:
+#    repo: 'git@github.com:pinae/WhaP.git'
+#    dest: '{{ service_cfg.directory }}/'
+#    force: true
+
+- name: "Copy {{ service_cfg.name }} nginx.conf"
+  template:
+    src: nginx.conf.j2
+    dest: '{{ service_cfg.directory }}/nginx.conf'
+    owner: '{{ admin.name }}'
+    group: 'docker'
+
+- name: "Copy {{ service_cfg.name }} .env.prod"
+  template:
+    src: env.prod.j2
+    dest: '{{ service_cfg.directory }}/whap/backend/.env.prod'
+    owner: '{{ admin.name }}'
+    group: 'docker'
+
+- name: Build the image for the backend container
+  community.docker.docker_image:
+    name: '{{ service_cfg.name }}-api'
+    build:
+      path: '{{ service_cfg.directory }}/whap/backend/'
+      args:
+        USER_ID: "{{ service_cfg.uid }}"
+        GROUP_ID: "{{ service_cfg.gid }}"
+      nocache: true
+    source: build
+    force_source: true
+    push: false
+
+- name: Build the image for the frontend container
+  community.docker.docker_image:
+    name: '{{ service_cfg.name }}-nginx'
+    build:
+      path: '{{ service_cfg.directory }}/whap/frontend/'
+      nocache: true
+      rm: true
+    source: build
+    force_source: true
+    push: false
+
+- ansible.builtin.import_role:
+    name: compose_hull
+    tasks_from: deploy_docker

@@ -1,0 +1,43 @@
+services:
+  db:
+    image: "postgres:17"
+    container_name: dockermanager-db-dev
+    environment:
+      POSTGRES_USER: mlcontainerwebinterface
+      POSTGRES_PASSWORD: 4Hj#Dg7kp9S2%fgPmcDa
+      POSTGRES_DB: mlcontainerwebinterface_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+  redis:
+    image: "redis:6.2"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  influxdb:
+    image: "influxdb:2"
+    container_name: whap-influxdb
+    ports:
+      - "8086:8086"
+    user: root
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: "setup"
+      DOCKER_INFLUXDB_INIT_USERNAME: "influx_admin"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "my-super-secret-password"
+      DOCKER_INFLUXDB_INIT_ORG: "whap_org"
+      DOCKER_INFLUXDB_INIT_BUCKET: "metrics"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "my-super-secret-token"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  influxdb_data:
+    driver: local

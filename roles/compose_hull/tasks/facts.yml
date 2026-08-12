@@ -1,0 +1,59 @@
+- name: "Merge service config and service defaults"
+  ansible.builtin.set_fact:
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/combine_filter.html
+    service_cfg: "{{ service_base_defaults | 
+                     ansible.builtin.combine(service_defaults | default({}), 
+                                             all_service_defaults | default({}), 
+                                             service_cfg, recursive=true) }}"
+  tags: [ always ]
+
+- name: "DEBUG effective service_cfg after merge"
+  ansible.builtin.debug:
+    var: service_cfg
+  tags: [ always ]
+
+- name: Set compose parameters according to "restarted" tag
+  ansible.builtin.set_fact:
+    docker_compose_params:
+      state: restarted
+      recreate: auto
+      remove_orphans: false
+      remove_volumes: false
+  tags: [ never, restarted ]
+
+- name: Set compose parameters according to "stopped" tag
+  ansible.builtin.set_fact:
+    docker_compose_params:
+      state: stopped
+      recreate: never
+      remove_orphans: false
+      remove_volumes: false
+  tags: [ never, stopped ]
+
+- name: Set compose parameters according to "recreated" tag
+  ansible.builtin.set_fact:
+    docker_compose_params:
+      state: present
+      recreate: always
+      remove_orphans: false
+      remove_volumes: false
+  tags: [ never, recreated ]
+
+- name: Set compose parameters according to "absent" tag
+  ansible.builtin.set_fact:
+    docker_compose_params:
+      state: absent
+      recreate: auto
+      remove_orphans: true
+      remove_volumes: true
+  tags: [ never, absent ]
+
+- name: DEBUG Service Configuration (merged)
+  debug:
+    var: service_cfg
+  tags: [ never, debug ]
+
+- name: DEBUG Parameters used for Docker Compose
+  debug:
+    var: docker_compose_params
+  tags: [ never, debug ]

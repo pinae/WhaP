@@ -1,0 +1,43 @@
+- name: "Copy files for the build"
+  ansible.builtin.copy:
+    src: '{{ item }}'
+    dest: '/docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build/{{ item }}'
+    owner: pina
+    group: 1001
+  loop:
+    - "nopasswd"
+
+- name: "Prepare Dockerfile"
+  ansible.builtin.template:
+    src: Dockerfile.j2
+    dest: '/docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build/Dockerfile'
+    owner: pina
+    group: 1001
+
+- name: "Build the custom Docker image: {{ service_cfg.image_name }}"
+  community.docker.docker_image:
+    name: "{{ service_cfg.image_name }}:latest"
+    source: build
+    build:
+      path: '/docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build/'
+      dockerfile: Dockerfile
+      args:
+        USERNAME: "{{ service_cfg.user }}"
+        USER_ID: "{{ service_cfg.user_id }}"
+        GROUP_ID: "{{ service_cfg.group_id }}"
+        PASSWORD: "{{ service_cfg.password }}"
+        USER_COMMENT: "{{ service_cfg.user }}"
+        ADDITIONAL_GIDS: "{{ service_cfg.additional_gids | join(',') }}"
+    # force_source: true # Rebuild every time
+  register: docker_build_result
+  ignore_errors: true # Continue execution even if the build fails
+
+- name: Show Docker build logs on failure
+  ansible.builtin.debug:
+    var: docker_build_result.build_logs
+  when: docker_build_result.failed
+
+- name: Fail the playbook if the build failed
+  ansible.builtin.fail:
+    msg: "Docker image build failed. See logs above."
+  when: docker_build_result.failed

@@ -1,0 +1,11 @@
+- name: "Define build path"
+  ansible.builtin.set_fact:
+    build_path: "{{ playbook_dir }}/build_artifacts/worker_local_ubuntu2510_ssh"
+
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: prepare_build_directory
+
+- name: "Log Build Context Location"
+  ansible.builtin.debug:
+    msg: "Dockerfile prepared at {{ build_path }}/build"

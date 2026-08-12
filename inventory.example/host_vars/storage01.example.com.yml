@@ -1,0 +1,44 @@
+locale: de_DE.UTF-8
+timezone: Europe/Berlin
+docker_dir: "/docker"
+backup_dir: "/backups"
+
+whap:
+  secret_key: "fill_in_a_long_secret_key_here" # Generate a strong random key: python -c 'import secrets; print(secrets.token_hex(32))'
+  domain: "whap.example.com"
+  directory: "{{ docker_dir }}/whap"
+  projects_dir: "/data/projects"
+  uid: 1000
+  gid: 1000
+  db:
+    version: "17-alpine"
+    name: "whap_db"
+    user: "whap_user"
+    password: "insert_a_database_password_here"
+  redis:
+    version: "6.2"
+  influxdb:
+    url: "http://example.com:8086"
+    version: "2"
+    db_name: "whap_metrics"
+    org: "whap_org"
+    admin_username: "influx_admin"
+    admin_password: "fill_in_a_influxdb_admin_password"
+    token: "put_access_token_here"
+    bucket: "metrics"
+  ssh_key_path: "/home/yourusername/.ssh/id_ed25519"
+  ssh_known_hosts_path: "/home/yourusername/.ssh/known_hosts"
+  separate_traefik_network:
+    use: true
+    name: "traefik_default"
+
+ldap:
+  domain: "openldap.example.com"
+  uri: "ldaps://openldap.example.com:636"
+  binduser:
+    dn: "cn=binduser,ou=usersgroup,dc=example,dc=com"
+    password: "put_the_binduser_password_here"
+  base:
+    dn: "ou=usersgroup,dc=example,dc=com"
+  enumerate: "False"  # only set to True to make getent passwd work. Reduces performance!
+  schema: "rfc2307bis"

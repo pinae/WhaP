@@ -1,0 +1,35 @@
+- name: "Ensure /data/{{ service_cfg.user }}/{{ service_cfg.project_name }}/.ssh exists"
+  file:
+    path: "{{ project_home_path }}/.ssh"
+    state: directory
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "700"
+
+- name: "Deploy public key for {{ service_cfg.user }}"
+  ansible.builtin.copy:
+    content: "{{ service_cfg.public_key | default('') }}"
+    dest: "{{ project_home_path }}/.ssh/authorized_keys"
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: '0600'
+  when:
+    - service_cfg.public_key is defined
+    - service_cfg.public_key is not none
+    - service_cfg.public_key | length > 0
+
+- name: "Create ~/.bashrc"
+  ansible.builtin.copy:
+    src: bashrc
+    dest: "{{ project_home_path }}/.bashrc"
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "644"
+
+- name: "Create ~/.profile"
+  ansible.builtin.copy:
+    src: profile
+    dest: "{{ project_home_path }}/.profile"
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "644"

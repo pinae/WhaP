@@ -1,0 +1,41 @@
+name: "{{ service_cfg.container_name }}"
+
+services:
+  {{ service_cfg.container_name }}:
+    build: "/docker/worker_synced_nvidia_pytorch1906-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build/"
+    runtime: nvidia
+    ipc: host
+    container_name: "{{ service_cfg.container_name }}"
+    restart: unless-stopped
+    ports:
+      - "22:22"
+    volumes:
+      - "/data/{{ service_cfg.user }}/{{ service_cfg.project }}/:/home/{{ service_cfg.user }}:rw"
+    environment:
+      - PROJECT={{ service_cfg.project }}
+    deploy:
+      resources:
+        limits:
+          {% if service_cfg.cpu_limit is defined and service_cfg.cpu_limit is not none %}
+          cpus: '{{ service_cfg.cpu_limit }}'
+          {% endif -%}
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: {{ service_cfg.gpus | to_json }}
+              capabilities: [ compute, utility ]
+    mac_address: "{{ service_cfg.mac_address }}"
+    networks:
+      {{ service_cfg.network }}:
+        ipv4_address: "{{ service_cfg.ip_address }}"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    healthcheck:
+      test: [ "CMD-SHELL", 'netstat -nlp | grep -E ":22\s+\S*\s+LISTEN\s+\S*sshd" > /dev/null' ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  {{ service_cfg.network }}:
+    external: true

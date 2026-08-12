@@ -1,0 +1,10 @@
+- name: Create the shared macvlan network for containers
+  community.docker.docker_network:
+    name: "{{ service_cfg.network }}"
+    driver: macvlan
+    driver_options:
+      parent: "{{ ethernet_device }}"
+    ipam_config:
+      - subnet: "{{ service_cfg.subnet }}"
+        gateway: "{{ service_cfg.gateway }}"
+    state: present

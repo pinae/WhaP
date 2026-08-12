@@ -1,0 +1,32 @@
+- name: Copy the docker-compose.yml
+  become: true
+  become_user: "{{ service_cfg.owner }}"
+  ansible.builtin.copy:
+    content: "{{ service_cfg.docker_compose_content }}"
+    dest: "{{ service_cfg.directory }}/docker-compose.yml"
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
+  tags: [ always ]
+
+- name: Validate compose file
+  ansible.builtin.command:
+    cmd: docker compose --file docker-compose.yml config --quiet
+    chdir: "{{ service_cfg.directory }}"
+  changed_when: false
+
+- name: Pull container images
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ service_cfg.directory }}"
+
+- name: Start containers
+  become: true
+  become_user: "{{ service_cfg.owner }}"
+  community.docker.docker_compose_v2:
+    project_name: "{{ service_cfg.name }}"
+    project_src: "{{ service_cfg.directory }}"
+    state: "{{ docker_compose_params.state }}"
+    recreate: "{{ docker_compose_params.recreate }}"
+    remove_orphans: "{{ docker_compose_params.remove_orphans }}"
+    remove_volumes: "{{ docker_compose_params.remove_volumes }}"
+  register: service_stack
+  tags: [ always ]

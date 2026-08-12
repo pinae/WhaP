@@ -1,0 +1,53 @@
+FROM ubuntu:25.10 AS base
+
+# Set environment variables for non-interactive installs and locale
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=de_DE.utf8
+
+# Update, install dependencies, and setup locale
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      # System & Networking
+      locales openssh-server vim iproute2 iputils-ping net-tools wget curl screen sudo \
+      # Python & Build Tools
+      python3-pip python3-numpy python3-ipython pipenv git build-essential cmake ccache sed \
+      # System Tools
+      software-properties-common gnupg2 \
+    # Setup locale
+    && localedef -i de_DE -c -f UTF-8 de_DE.UTF-8
+
+# --- Install NVIDIA CUDA Toolkit ---
+# This is a large installation, so we give it its own layer.
+# It will be cached unless the commands change.
+WORKDIR /tmp
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && rm cuda-keyring_1.1-1_all.deb \
+    && apt-get update \
+    && apt-get -y install cuda-toolkit-12-9 libnvidia-compute-580-server libgl-dev libvdpau-dev nvidia-cuda-toolkit-gcc
+RUN echo "\n\n\n\n\n2\n" | apt-get -y install nvidia-cudnn
+RUN apt-get -y install nvtop
+
+# Using a heredoc is slightly more robust than piping echo for multi-line input
+#RUN (apt-get -y install nvidia-cudnn <<EOF
+#2
+#EOF
+#)
+
+# unminimize the system
+#RUN apt-get install -y unminimize
+#RUN echo "y\nY" | unminimize
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+RUN mkdir -p /run/sshd
+
+COPY nopasswd /etc/sudoers.d/nopasswd
+RUN chmod 0440 /etc/sudoers.d/nopasswd
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Start OpenSSH
+USER root
+RUN ssh-keygen -A
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]

@@ -1,0 +1,57 @@
+name: "{{ service_cfg.container_name }}"
+
+services:
+  {{ service_cfg.container_name }}:
+    build:
+      context: "/docker/worker_synced_ubuntu2404_ssh-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build/"
+      dockerfile: "Dockerfile"
+      args:
+        USERNAME: "{{ service_cfg.user }}"
+        USER_ID: "{{ service_cfg.user_id }}"
+        GROUP_ID: "{{ service_cfg.group_id }}"
+        PASSWORD: "{{ service_cfg.password }}"
+        USER_COMMENT: "{{ service_cfg.user }}"
+    runtime: nvidia
+    ipc: host
+    container_name: "{{ service_cfg.container_name }}"
+    restart: unless-stopped
+    ports:
+      - "22:22"
+    volumes:
+      {% set base_volumes = ["/data/" + service_cfg.user + "/" + service_cfg.project_name + "/:/home/" + service_cfg.user + ":rw"] %}
+      {% set all_volumes = base_volumes %}
+      {% if service_cfg.additional_volumes is defined and service_cfg.additional_volumes %}
+      {%   for volume_string in service_cfg.additional_volumes %}
+      {%     set nothing = all_volumes.append(volume_string) %}
+      {%   endfor %}
+      {% endif %}
+      {{ all_volumes | to_json }}
+    environment:
+      - PROJECT={{ service_cfg.project }}
+      - SAFE_PROJECT_NAME={{ service_cfg.project_name }}
+    deploy:
+      resources:
+        limits:
+          {% if service_cfg.cpu_limit is defined and service_cfg.cpu_limit is not none %}
+          cpus: '{{ service_cfg.cpu_limit }}'
+          {% endif -%}
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: {{ service_cfg.gpus | to_json }}
+              capabilities: [ compute, utility ]
+    mac_address: "{{ service_cfg.mac_address }}"
+    networks:
+      {{ service_cfg.network }}:
+        ipv4_address: "{{ service_cfg.ip_address }}"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    healthcheck:
+      test: [ "CMD-SHELL", 'netstat -nlp | grep -E ":22\s+\S*\s+LISTEN\s+\S*sshd" > /dev/null' ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  {{ service_cfg.network }}:
+    external: true

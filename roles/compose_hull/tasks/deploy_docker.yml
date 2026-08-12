@@ -1,0 +1,60 @@
+- name: Build Traefik rule
+  traefik_info_facts:
+    service_name: "{{ service_cfg.name }}"
+    domains: "{{ service_cfg.domain | default('') }}"
+    path_prefix: "{{ service_cfg.url_path_prefix | default('') }}"
+    stripprefix: "{{ service_cfg.stripprefix | default(false) }}"
+    ip_whitelist: "{{ traefik.internal_ip_ranges | default([]) }}"
+    external: "{{ service_cfg.external | default(true) }}"
+  register: traefik_info
+
+- name: Generate Compose File
+  become: true
+  become_user: "{{ service_cfg.owner }}"
+  template:
+    src: compose_master_template.yml.j2
+    dest: "{{ service_cfg.directory }}/docker-compose.yml"
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
+  tags: [ always ]
+
+- name: Generate .env File
+  become: true
+  become_user: "{{ service_cfg.owner }}"
+  template:
+    src: .env.j2
+    dest: "{{ service_cfg.directory }}/.env"
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
+  tags: [ always ]
+  when: service_cfg.env | default({}, true) | length > 0
+
+- name: Validate compose file
+  ansible.builtin.command:
+    cmd: docker compose --file docker-compose.yml config --quiet
+    chdir: "{{ service_cfg.directory }}"
+  changed_when: false
+
+- name: Pull container images
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ service_cfg.directory }}"
+
+#- name: Create containers
+#  ansible.builtin.command:
+#    cmd: docker compose --ansi never --progress plain --file docker-compose.yml create
+#    chdir: "{{ service_cfg.directory }}"
+#  register: temp_compose_create
+#  changed_when: "'Created' in temp_compose_create.stdout"
+
+- name: Start containers
+  become: true
+  become_user: "{{ service_cfg.owner }}"
+  community.docker.docker_compose_v2:
+    project_name: "{{ service_cfg.name }}"
+    project_src: "{{ service_cfg.directory }}"
+    state: "{{ docker_compose_params.state }}"
+    recreate: "{{ docker_compose_params.recreate }}"
+    remove_orphans: "{{ docker_compose_params.remove_orphans }}"
+    remove_volumes: "{{ docker_compose_params.remove_volumes }}"
+  register: service_stack
+  tags: [ always ]

@@ -1,0 +1,24 @@
+- name: "Ensure local user directory /home/{{ service_cfg.user }} exists"
+  ansible.builtin.file:
+    path: "/home/{{ service_cfg.user }}"
+    state: directory
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "755"
+
+- name: "Ensure local project directory {{ project_home_path }} exists"
+  ansible.builtin.file:
+    path: "{{ project_home_path }}"
+    state: directory
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: "755"
+
+- name: "Create ttl.txt for local project"
+  become: true
+  ansible.builtin.copy:
+    content: "{{ service_cfg.ttl_date }}"
+    dest: "{{ project_home_path }}/ttl.txt"
+    owner: "{{ service_cfg.user_id }}"
+    group: "{{ service_cfg.group_id }}"
+    mode: '644'

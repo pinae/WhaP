@@ -1,0 +1,13 @@
+locale: de_DE.UTF-8
+timezone: Europe/Berlin
+docker_dir: "/docker"
+ethernet_device: "eth0"
+nfs:
+  server_ip: "192.168.1.2"  # Fill in the IP of storage01.example.com here
+  export_path: "/mnt/NFS"
+  local_mount_point: "/data"
+  mount_options: "defaults,rw,hard,proto=tcp,timeo=150,retrans=2,async,nosuid,noatime,nofail,vers=4.1"
+portainer_agent:
+  name: portainer_agent
+  version: "latest"
+  directory: "{{ docker_dir }}/portainer_agent"

@@ -1,0 +1,41 @@
+{{ ansible_managed | comment }}
+
+# Labels for Traefik, Watchtower, and Autoheal
+#   (docker compose ignores fields that start with `x-`. So we can use them to
+#    define reusable fragments with `&anchors`. See:
+#    https://docs.docker.com/compose/compose-file/11-extension/ )
+x-labels: &base_labels
+      com.docker.compose.project: {{ service_cfg.name | to_json }}
+{% if service_cfg.traefik == true %}
+      traefik.enable: true
+      traefik.http.services.{{ service_cfg.name }}.loadbalancer.server.port: {{ service_cfg.port | to_json }}
+      traefik.http.routers.{{ service_cfg.name }}_web.EntryPoints: {{ service_cfg.router_entry_point | to_json }}
+{% if traefik_info.domain_rule is defined %}
+      traefik.http.routers.{{ service_cfg.name }}_web.rule: {{ traefik_info.domain_rule | to_json }}
+{% endif %}
+{% for middleware_config_line in traefik_info.middleware_config_lines %}
+      {{ middleware_config_line }}
+{% endfor %}
+{% if traefik_info.middlewares | length > 0 %}
+      traefik.http.routers.{{ service_cfg.name }}_web.middlewares: {{ traefik_info.middlewares | to_json }}
+{% endif %}
+      traefik.http.routers.{{ service_cfg.name }}_web.service: "{{ service_cfg.name }}"
+      traefik.http.routers.{{ service_cfg.name }}_web.tls: true
+      traefik.http.routers.{{ service_cfg.name }}_web.tls.certresolver: "default"
+{% endif %}
+{% if service_cfg.watchtower is defined and service_cfg.watchtower == true %}
+      com.centurylinklabs.watchtower.enable: true
+{% endif %}
+{% if service_cfg.autoheal is defined and service_cfg.autoheal == true %}
+      autoheal: true
+{% endif %}
+{% if service_cfg.homepage is defined %}
+      homepage.group: {{ service_cfg.homepage.group | default('Other') | to_json }}
+      homepage.name: {{ service_cfg.homepage.name | default(service_cfg.name | capitalize) | to_json }}
+      homepage.icon: {{ service_cfg.homepage.icon | default(service_cfg.name + '.png') | to_json }}
+      homepage.href: {{ service_cfg.homepage.href | default('https://' + service_cfg.domain) | to_json }}
+      homepage.description: {{ service_cfg.homepage.description | default('') | to_json }}
+{% endif %}
+
+# The main Docker Compose file
+{{ lookup('template', 'docker-compose.yml.j2') }}

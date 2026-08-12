@@ -1,0 +1,5 @@
+[compute]
+worker01.example.com
+
+[storage]
+storage01.example.com

@@ -1,0 +1,18 @@
+- name: "Get the ID of {{ service_cfg.owner }} and the ID of the group {{ service_cfg.group }}."
+  block:
+    - name: "Get the ID of {{ service_cfg.owner }} and the ID of the group docker."
+      ansible.builtin.getent:
+        database: "{{ item.db }}"
+        key: "{{ item.key }}"
+      with_items: [{"db": "passwd", "key": "{{ service_cfg.owner }}"}, {"db": "group", "key": "{{ service_cfg.group }}"}]
+      tags: [ always ]
+
+    - name: "Store User ID: {{ ansible_facts.getent_passwd[service_cfg.owner][1] }}"
+      set_fact:
+        PUID: "{{ ansible_facts.getent_passwd[service_cfg.owner][1] }}"
+      tags: [ always ]
+
+    - name: "Store Group ID of docker: {{ ansible_facts.getent_group[service_cfg.group][1] }}"
+      set_fact:
+        PGID: "{{ ansible_facts.getent_group[service_cfg.group][1] }}"
+      tags: [ always ]

@@ -1,0 +1,73 @@
+name: "{{ service_cfg.container_name }}"
+
+services:
+{% for gpu_num in service_cfg.gpus %}
+  {{ service_cfg.container_name }}-{{ gpu_num }}:
+    image: "ollama/ollama:latest"
+    runtime: nvidia
+    ipc: host
+    container_name: "{{ service_cfg.container_name }}-{{ gpu_num }}"
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      {% set base_volumes = ["/home/" + service_cfg.user + "/" + service_cfg.project_name + "/:/root/.ollama:rw"] %}
+      {% set all_volumes = base_volumes %}
+      {% if service_cfg.additional_volumes is defined and service_cfg.additional_volumes %}
+      {%   for volume_string in service_cfg.additional_volumes %}
+      {%     set nothing = all_volumes.append(volume_string) %}
+      {%   endfor %}
+      {% endif %}
+      {{ all_volumes | to_json }}
+    environment:
+      - OLLAMA_MODELS=/root/.ollama/models
+      - OLLAMA_KEEP_ALIVE=5m
+      - PROJECT={{ service_cfg.project_name }}
+      - SAFE_PROJECT_NAME={{ service_cfg.project_name }}
+    deploy:
+      resources:
+{% if service_cfg.cpu_limit is defined and service_cfg.cpu_limit is not none %}
+        limits:
+          cpus: '{{ service_cfg.cpu_limit }}'{% endif %}
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["{{ gpu_num }}"]
+              capabilities: [ compute, utility ]
+    mac_address: "{{ ollama.node_network_adapters[gpu_num].mac }}"
+    networks:
+      {{ service_cfg.network }}:
+        ipv4_address: "{{ ollama.node_network_adapters[gpu_num].ip }}"
+    labels:
+      - 'com.centurylinklabs.watchtower.enable=true'
+    healthcheck:
+      test: [ "CMD-SHELL", "ollama list > /dev/null || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+{% endfor %}
+
+  {{ service_cfg.container_name }}-sidecar:
+    build:
+      context: ./sidecar
+    environment:
+        - ORCHESTRATOR_URL={{ ollama.orchestrator.url }}:{{ ollama.orchestrator.port }}/api/v1/health
+        - INSTANCE_PUBLIC_IPS={{ ollama.node_network_adapters | map(attribute='ip') | join(',') }}
+        - HEARTBEAT_INTERVAL={{ ollama.orchestrator.poll_interval }}
+        - GPU_COUNT={{ service_cfg.gpus | length }}
+    depends_on:
+{% for gpu_num in service_cfg.gpus %}
+      - {{ service_cfg.container_name }}-{{ gpu_num }}{% endfor %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: {{ service_cfg.gpus | to_json }}
+              capabilities: [ compute, utility ]
+    labels:
+      - 'com.centurylinklabs.watchtower.enable=true'
+
+networks:
+  {{ service_cfg.network }}:
+    external: true

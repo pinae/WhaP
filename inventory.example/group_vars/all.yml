@@ -1,0 +1,9 @@
+ansible_user: yourusername
+admin:
+  name: yourusername
+  key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+  email: "yourusername@example.com"
+
+all_service_defaults:
+  owner: "{{ admin.name }}"
+  group: "docker"

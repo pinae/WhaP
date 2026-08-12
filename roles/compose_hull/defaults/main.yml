@@ -1,0 +1,24 @@
+docker_compose_params:
+  state: present
+  recreate: never
+  remove_orphans: false
+  remove_volumes: false
+
+service_base_defaults:
+  # Required service config entries (must be set elsewhere)
+  name: UNSET  # should be set in service_defaults or service_cfg
+  directory: UNSET  # should be set in service_cfg
+  owner: UNSET  # should be set in all_service_defaults or service_cfg
+  group: UNSET  # should be set in all_service_defaults or service_cfg
+  port: UNSET  # should be set in service_defaults or service_cfg
+  domain: UNSET  # should be set in service_cfg
+
+  # Optional service config entries (have default values)
+  subdirs: []
+  external: false
+  watchtower: false
+  autoheal: false
+  traefik: true
+  router_entry_point: "web-secure"
+  url_path_prefix: ""
+  env:

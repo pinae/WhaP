@@ -1,0 +1,63 @@
+FROM nvcr.io/nvidia/pytorch:19.06-py3 as nvidia-torch1906-base
+WORKDIR /
+
+RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* \
+	&& localedef -i de_DE -c -f UTF-8 -A /usr/share/locale/locale.alias de_DE.UTF-8
+ENV LANG=de_DE.utf8
+
+RUN apt-get update && apt-get install -y openssh-server sudo vim iproute2 iputils-ping net-tools wget curl screen git software-properties-common gnupg2
+
+# =================================================================
+# --- Stage 2: Final Image                                      ---
+# =================================================================
+FROM nvidia-torch1906-base
+
+# Use ARG to define build-time variables. The Ansible script will
+# pass values to these arguments.
+ARG USERNAME={{ service_cfg.user }}
+ARG USER_ID={{ service_cfg.user_id }}
+ARG GROUP_ID={{ service_cfg.group_id }}
+ARG PASSWORD={{ service_cfg.password }}
+ARG USER_COMMENT="LDAP User {{ service_cfg.user }}"
+
+# Configure SSH and create the user based on the build arguments
+RUN echo "root:${PASSWORD}" | chpasswd \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    # First, check if a user with the target UID already exists and delete them.
+    && if getent passwd ${USER_ID} > /dev/null; then \
+        EXISTING_USER=$(getent passwd ${USER_ID} | cut -d: -f1); \
+        echo "User with UID ${USER_ID} (${EXISTING_USER}) already exists. Deleting."; \
+        deluser --remove-home ${EXISTING_USER}; \
+    fi && \
+    \
+    # Check if a group with the target GID already exists and delete it.
+    if getent group ${GROUP_ID} > /dev/null; then \
+        EXISTING_GROUP=$(getent group ${GROUP_ID} | cut -d: -f1); \
+        # Only delete if it's not the user's intended group name to avoid errors
+        if [ "${EXISTING_GROUP}" != "${USERNAME}" ]; then \
+            echo "Group with GID ${GROUP_ID} (${EXISTING_GROUP}) already exists. Deleting."; \
+            delgroup ${EXISTING_GROUP}; \
+        fi; \
+    fi \
+    && groupadd --gid ${GROUP_ID} ${USERNAME} \
+    && useradd --uid ${USER_ID} --gid ${GROUP_ID} -m -s /bin/bash --comment "${USER_COMMENT}" ${USERNAME} \
+    && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME} \
+    && echo "${USERNAME}:${PASSWORD}" | chpasswd
+
+# Copy additional sudoers configuration if it exists in your build context
+# Ensure the 'nopasswd' file is present where you run 'docker build'
+COPY nopasswd /etc/sudoers.d/nopasswd
+RUN chmod 0440 /etc/sudoers.d/nopasswd
+
+# Switch context to the new user's home directory
+WORKDIR /home/${USERNAME}
+USER ${USERNAME}
+
+# Start OpenSSH
+USER root
+RUN mkdir -p /var/run/sshd
+RUN chmod 0755 /var/run/sshd
+RUN ssh-keygen -A
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]
