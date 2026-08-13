@@ -171,7 +171,7 @@ def execute_ansible_job(job, event_callback):
                 'user_id': quoted(str(ansible_user_params['user_id'])),
                 'group_id': quoted(str(ansible_user_params['group_id'])),
                 'additional_gids': [str(gid) for gid in shared_folder_gids],
-                'owner': quoted('pina'),
+                'owner': quoted(current_app.config.get("CONTAINER_FILE_OWNER", "pina")),
                 'group': quoted('docker'),
                 'project': quoted(project_name),
                 'project_name': quoted(project_name),

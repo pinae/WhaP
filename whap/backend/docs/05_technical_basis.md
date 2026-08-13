@@ -21,7 +21,10 @@ To configure the containers, Whale Pond uses [Ansible](https://docs.ansible.com/
 web application generates ad-hoc playbooks that set variables and then execute the 
 [Ansible Role](https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_reuse_roles.html) 
 corresponding to the selected image. The roles are defined together with the web application in a 
-mono-repository: https://gitlab.ruhr-uni-bochum.de/pinae/ml-ansible
+mono-repository: https://github.com/pinae/WhaP
+Although the whole code lives in the monorepo the usual deployment is to have a private repository holding the 
+Ansible inventory, optionally some additional roles and the appropriate playbooks. This private repository holds 
+the public repository at `WhaP/` as a git submodule.
 
 ## Web Application Structure
 
@@ -42,7 +45,7 @@ cd whap/frontend/ && yarn start
 ```
 
 The deployment setup can be reviewed in the 
-[whap role](https://gitlab.ruhr-uni-bochum.de/pinae/ml-ansible/-/tree/main/roles/whap) within the repository. 
+[whap role](https://github.com/pinae/WhaP/tree/main/roles/whap) within the repository. 
 There, the Flask application runs with [Gunicorn](https://gunicorn.org/) in its own container. 
 [Nginx](https://nginx.org/index.html) serves static files and forwards API calls to the Gunicorn container. 
 The worker container runs separately on a [Python image](https://hub.docker.com/_/python).
@@ -59,8 +62,8 @@ The data for statistics is pushed directly to the InfluxDB by the script defined
 ## Docker Images
 
 To build the images, a [Jenkins CI/CD server](https://www.jenkins.io/) listens for pushes to the 
-[GitLab repository](https://gitlab.ruhr-uni-bochum.de/pinae/ml-ansible). The build process is defined in the 
-[Jenkinsfile](https://gitlab.ruhr-uni-bochum.de/pinae/ml-ansible/-/blob/main/Jenkinsfile): 
+[GitHub repository](https://github.com/pinae/WhaP). The build process is defined in the 
+Jenkinsfile: 
 First, Jenkins checks out the repository, then verifies if there were changes in roles whose names begin with 
 `worker_`, and triggers docker build if changes occurred. The Dockerfiles for the `worker_` roles usually contain 
 `apt install` commands to install CUDA and CuDNN, which triggers very large downloads and ultimately leads to 

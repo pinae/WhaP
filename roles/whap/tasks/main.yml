@@ -11,8 +11,10 @@
       external: true
       watchtower: false
       autoheal: true
+      container_file_owner: "root"
       uid: 3000
       gid: 3000
+      extra_role_dirs: []
       db:
         version: "17-alpine"
       redis:
@@ -21,12 +23,12 @@
         version: "3-core"
         org: "whap_org"
         admin_username: "influx_admin"
-        admin_password: "sectretPASSWORD"
-        token: "sectretTOKEN"
+        #admin_password: "sectretPASSWORD"
+        #token: "sectretTOKEN"
         bucket: "metrics"
       separate_traefik_network:
         use: true
-        name: "ix-traefik_default"
+        name: "traefik_default"
 
 #- name: Get the git repository
 #  ansible.builtin.git:

@@ -41,6 +41,7 @@ class Config:
     DOCS_DIR = os.environ.get('DOCS_DIR', '/backend/docs')
 
     DOCKER_REGISTRY = os.environ.get("DOCKER_REGISTRY", "")
+    CONTAINER_FILE_OWNER = os.environ.get("CONTAINER_FILE_OWNER", "pina")
 
     # --- LDAP Configuration - CRITICAL ---
     LDAP_SERVER_URI = os.environ.get('LDAP_SERVER_URI')  # e.g., "ldaps://ldap.ruhr-uni-bochum.de:636"

@@ -1,26 +1,26 @@
-- name: "Ensure /docker exists"
+- name: "Ensure {{ docker_dir }} exists"
   become: true
   file:
-    path: "/docker"
+    path: "{{ docker_dir }}"
     state: directory
-    owner: pina
-    group: 1001
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
     mode: "775"
 
-- name: "Ensure /docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }} exists"
+- name: "Ensure {{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }} exists"
   become: true
   file:
-    path: "/docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}"
+    path: "{{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}"
     state: directory
-    owner: pina
-    group: 1001
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
     mode: "775"
 
-- name: "Ensure /docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build exists"
+- name: "Ensure {{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build exists"
   become: true
   file:
-    path: "/docker/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build"
+    path: "{{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build"
     state: directory
-    owner: pina
-    group: 1001
+    owner: "{{ service_cfg.owner }}"
+    group: "{{ service_cfg.group }}"
     mode: "775"

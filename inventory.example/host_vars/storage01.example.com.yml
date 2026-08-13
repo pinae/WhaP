@@ -8,8 +8,10 @@ whap:
   domain: "whap.example.com"
   directory: "{{ docker_dir }}/whap"
   projects_dir: "/data/projects"
+  container_file_owner: "yourusername"
   uid: 1000
   gid: 1000
+  extra_role_dirs: []
   db:
     version: "17-alpine"
     name: "whap_db"

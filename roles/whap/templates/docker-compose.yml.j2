@@ -70,6 +70,9 @@ services:
       - "{{ service_cfg.directory }}/ansible_project:/app/ansible_project:ro"
       # Mount the roles to make the workers available
       - "{{ service_cfg.directory }}/roles:/backend/roles:ro"
+{% for extra_dir in service_cfg.extra_role_dirs | default([]) %}
+      - "{{ extra_dir }}:/backend/roles_extra/{{ loop.index }}:ro"
+{% endfor %}
       # Volume for ansible-runner artifacts (logs, etc.)
       - "{{ service_cfg.directory }}/ansible_runner_data:/backend/ansible_runner:rw"
       # Volume for documentation
@@ -107,6 +110,9 @@ services:
       # Worker also needs access to the same ansible project and keys
       - "{{ service_cfg.directory }}/ansible_project:/app/ansible_project:ro"
       - "{{ service_cfg.directory }}/roles:/backend/roles:ro"
+{% for extra_dir in service_cfg.extra_role_dirs | default([]) %}
+      - "{{ extra_dir }}:/backend/roles_extra/{{ loop.index }}:ro"
+{% endfor %}
       - "{{ service_cfg.directory }}/ansible_runner_data:/backend/ansible_runner:rw"
       - "{{ service_cfg.directory }}/inventory/:/backend/inventory:rw"
       - "{{ service_cfg.directory }}/inventory/host_vars:/backend/inventory/host_vars:ro"
