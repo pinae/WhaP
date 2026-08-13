@@ -1,0 +1,82 @@
+# Backing services for local development.
+#
+# This starts PostgreSQL, Redis and InfluxDB only -- the same images and
+# versions the Ansible `whap` role deploys in production. The application
+# itself runs on your host with `uv` and `yarn`, so you get a real debugger,
+# native file watching, and no container-user file ownership surprises. See
+# the "Development setup" section of README.md.
+#
+# This is NOT a deployment. The credentials below are throwaway values in a
+# public repository and every port is published to localhost. Real
+# installations are deployed with the `whap` Ansible role, which generates its
+# own compose file from your private inventory.
+#
+#   docker compose up
+#   docker compose down        # stop, keep data
+#   docker compose down -v     # stop and wipe the databases
+
+name: whap-dev
+
+services:
+  db:
+    image: "postgres:17-alpine"
+    container_name: whap-dev-db
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-whap_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-whap_dev_password}"
+      POSTGRES_DB: "${POSTGRES_DB:-whap_db}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: "redis:6.2"
+    container_name: whap-dev-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  influxdb:
+    # Only needed when working on metrics collection: the backend does not
+    # talk to InfluxDB, the `metrics` role writes into it.
+    #
+    # Pinned to 2.x deliberately. The service definition in the `whap` role
+    # (DOCKER_INFLUXDB_INIT_* and /var/lib/influxdb2) is the v2 automated
+    # setup; InfluxDB 3 Core uses a different entrypoint, different variables
+    # and a different port, so moving to 3 is a migration, not a tag change.
+    image: "influxdb:2.7"
+    container_name: whap-dev-influxdb
+    ports:
+      - "127.0.0.1:8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: "setup"
+      DOCKER_INFLUXDB_INIT_USERNAME: "influx_admin"
+      DOCKER_INFLUXDB_INIT_PASSWORD: "dev_password_change_me"
+      DOCKER_INFLUXDB_INIT_ORG: "whap_org"
+      DOCKER_INFLUXDB_INIT_BUCKET: "metrics"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "dev_token_change_me"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  influxdb_data:
+    driver: local

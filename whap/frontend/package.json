@@ -27,7 +27,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "start-backend": "cd ../backend && pipenv run flask run --no-debugger",
+    "start-backend": "cd ../backend && uv run python run.py",
+    "start-worker": "cd ../backend && uv run python worker.py",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

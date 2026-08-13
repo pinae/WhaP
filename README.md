@@ -18,9 +18,132 @@ Real-time logs from the deployment process are streamed directly to the user's b
 
 -----
 
+## Ways to run WhalePond
+
+There are three setups, meant for different things:
+
+| Setup | What it is | How it runs |
+| --- | --- | --- |
+| **Development** | One machine, dev servers with auto-reload, no compute node | Data stores in Docker, application processes on your host |
+| **Test** | One storage server and one compute node | Ansible, with a small inventory |
+| **Production** | Storage server hosting the app, several compute servers | Ansible, same roles, larger inventory |
+
+The development setup is described below. For the other two see
+[Deploy with Ansible](#Deploy with Ansible) — they use
+the same Ansible roles and differ only in the inventory you write.
+
+-----
+
+## Development setup
+
+The database, Redis and InfluxDB run in Docker at the same versions production
+uses. The backend, the worker and the frontend run directly on your host, so
+you get native file watching, a debugger you can attach without ceremony, and
+no container-user file ownership problems in your working tree. Dependency
+versions still match production exactly, because `uv` and `yarn` resolve the
+same `uv.lock` and `yarn.lock` the production images are built from.
+
+This is not a deployment: cookies go over plain HTTP, the Werkzeug debugger is
+enabled, and the credentials below are throwaway values in a public
+repository.
+
+### 1. Requirements
+
+  * [Docker](https://docs.docker.com/engine/install/) with the `compose` plug-in
+  * [uv](https://docs.astral.sh/uv/) — it installs the right Python itself
+  * [Node.js](https://nodejs.org/) 20 with `yarn`
+
+`python-ldap` is compiled from source, so on Debian or Ubuntu you also need:
+
+```bash
+sudo apt install build-essential libldap2-dev libsasl2-dev
+```
+
+### 2. Start the data stores
+
+```bash
+git clone https://github.com/pinae/WhaP.git
+cd WhaP
+docker compose up -d
+```
+
+This gives you PostgreSQL on `localhost:5432`, Redis on `localhost:6379` and
+InfluxDB on `localhost:8086`, all bound to the loopback interface. Stop them
+with `docker compose down`, or `docker compose down -v` to wipe the data.
+
+### 3. Configure and migrate the backend
+
+```bash
+cd whap/backend
+cp env.example .env
+uv sync
+uv run flask db upgrade
+```
+
+`env.example` is already filled in for this setup; read through it before
+changing anything, the comments explain which values matter and why.
+
+### 4. Create an admin user
+
+The database starts empty and there is no LDAP server locally, so make
+yourself a local account:
+
+```bash
+uv run flask create-admin
+```
+
+### 5. Run it — four terminals
+
+```bash
+# 1: Databases
+docker compose up
+
+# 1: API and WebSocket server, reloads on save
+cd whap/backend && uv run python run.py
+
+# 2: job runner, restart manually after changing worker code
+cd whap/backend && uv run python worker.py
+
+# 3: frontend dev server, hot reloads on save
+cd whap/frontend && yarn install && yarn start
+```
+
+Then open http://localhost:3000. The frontend talks to the backend at
+`http://localhost:5000`, configured in `whap/frontend/.env`.
+
+The worker deliberately does not reload — restarting it mid-job would orphan a
+running playbook.
+
+### Running the backend tests
+
+```bash
+cd whap/backend
+uv run python -m pytest -q
+```
+
+### Limits of the development setup
+
+There is no compute server, so container provisioning cannot finish. You can
+create projects and containers in the UI and watch a job start: the queue, the
+WebSocket log stream and the error handling all get exercised, but the Ansible
+run fails when it tries to reach a host. Anything touching real provisioning
+belongs in the test setup.
+
+LDAP is absent for the same reason. `LDAP_SERVER_URI` and `LDAP_USER_BASE_DN`
+carry example values because the configuration check refuses to boot without
+them; LDAP logins fail, local users work.
+
+### Overriding the compose defaults
+
+Values in `docker-compose.yml` can be overridden from a `.env` file next to it
+in the repository root (gitignored). If you change the database credentials
+there, change `DATABASE_URL` in `whap/backend/.env` to match.
+
 ## Basic Docker Deployment Setup
 
-This project is designed to be deployed as a multi-container application using Docker Compose. 
+You may deploy this as a multi-container application using Docker Compose. However 
+note that there is a Ansible based setup that gives you the same with less manual configuration.
+
 The following instructions assume you have [Docker](https://docs.docker.com/engine/install/) and its `compose` plug-in 
 installed on your host machine.
 

@@ -2,7 +2,7 @@ name: "{{ service_cfg.container_name }}"
 
 services:
   {{ service_cfg.container_name }}:
-    image: "{{ (whap_registry ~ '/') if whap_registry else '' }}synced_ubuntu2510_ssh:latest"
+    image: "{{ (service_cfg.whap_registry ~ '/') if service_cfg.whap_registry else '' }}synced_ubuntu2510_ssh:latest"
     runtime: nvidia
     ipc: host
     container_name: "{{ service_cfg.container_name }}"

@@ -15,6 +15,7 @@
       uid: 3000
       gid: 3000
       extra_role_dirs: []
+      app_subdir: "WhaP"
       db:
         version: "17-alpine"
       redis:
