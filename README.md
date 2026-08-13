@@ -138,7 +138,7 @@ just a private directory) for your configuration and include WhaP inside it:
 
 ### 2. Add WhaP
 
-As a submodule, if `my-site` is a git repository:
+As a submodule, if `my-whap` is a git repository:
 
     git submodule add https://github.com/pinae/WhaP.git WhaP
 
@@ -154,22 +154,27 @@ host_vars to match.
 
 First install `sshpass` for the first login without public key. On Ubuntu or Debian use:
 ```shell
-sudo apt install sshpass
+sudo apt install sshpass build-essential libldap2-dev libsasl2-dev
 ```
+The libraries `build-essential`, `libldap2-dev` and `libsasl2-dev` are needed to build python-ldap
+during the setup of the `uv` environment in the next step.
 
 Then [install Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html). 
-We recommend using `uv` with the pyproject.tomy in the whap/backend/ folder of the repository:
+We recommend using `uv` with the pyproject.toml in the whap/backend/ folder of the repository:
 ```shell
 cd WhaP/whap/backend
 uv sync
+source WhaP/whap/backend/.venv/bin/activate
 ```
 
-The following commands use `uv` to run the ansible commands from within the virtual environment. 
-If you installed Ansible without a virtualenv remove the trailing `uv run` from the following commands.
+The following commands use `uv` to run the ansible commands from within a virtual environment. 
+The source command activates this environment and after that `ansible-galaxy` and `ansible-playbook`
+are inside your $PATH. You may also just install system packages for ansible like this:
+`sudo apt install ansible-core`
 
 ### 4. Configure Ansible
 
-Create `ansible.cfg` in `my-site`:
+Create `ansible.cfg` in `my-whap`:
 
     [defaults]
     inventory = inventory
@@ -200,14 +205,14 @@ configures a compute server.
 Copy `WhaP/plays.example/whap.yml` to `plays/whap.yml`, adjust the `hosts:` line
 to match a group in your inventory, then:
 
-    uv run ansible-playbook plays/whap.yml
+    ansible-playbook plays/whap.yml
 
 ### Keeping WhaP up to date
 
     git -C WhaP pull origin main
     git add WhaP && git commit -m "Update WhaP"      # submodule only
 
-If you clone `my-site` on another machine, fetch the submodule too:
+If you clone `my-whap` on another machine, fetch the submodule too:
 
     git clone --recurse-submodules <your-repo-url>
     # or, in an existing checkout:
@@ -216,7 +221,7 @@ If you clone `my-site` on another machine, fetch the submodule too:
 ### Docker registry (optional)
 
 Roles from the 2510 generation pull their images from a registry instead of
-building locally. Set `DOCKER_REGISTRY` in `.env.prod` (or `registry` in your
+building locally. Set `DOCKER_REGISTRY` in `.env.prod` (or `whap_registry` in your
 host_vars) to point at it. Leave it empty to use the older build-based roles.
 
 ## Run the playbook
@@ -224,11 +229,11 @@ host_vars) to point at it. Leave it empty to use the older build-based roles.
 For the first server setup you need to allow login with `--ask-pass`:
 
 ```shell
-uv run ansible-playbook plays.example/initial-setup.yml -i hosts --ask-pass --ask-become-pass
+ansible-playbook plays.example/initial-setup.yml -i hosts --ask-pass --ask-become-pass
 ```
 
 ```shell script
-uv run ansible-playbook plays.example/whap.yml -i hosts
+ansible-playbook plays.example/whap.yml -i hosts
 ```
 
 -----
@@ -268,7 +273,8 @@ The frontend is a modern single-page application built with [React](https://reac
 
 ## Running Tests
 
-The backend test suite is written using `pytest`, and the Python virtual environment is managed by `uv`. Run the tests from the `whap/backend/` directory:
+The backend test suite is written using `pytest`, and the Python virtual environment is managed by `uv`. 
+Run the tests from the `whap/backend/` directory:
 
 ```bash
 uv run pytest
@@ -291,4 +297,5 @@ For a browsable HTML report (written to `htmlcov/`; open `htmlcov/index.html`):
 uv run pytest --cov=app --cov-report=html
 ```
 
-The measured package, branch coverage, and omitted paths are configured in the `[tool.coverage.*]` sections of `pyproject.toml`.
+The measured package, branch coverage, and omitted paths are configured in the `[tool.coverage.*]` 
+sections of `pyproject.toml`.

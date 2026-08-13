@@ -106,7 +106,7 @@ services:
         GROUP_ID: "{{ service_cfg.gid }}"
     container_name: whap-worker
     user: "0:0"
-    env_file: "{{ service_cfg.directory }}/whap/backend/.env.prod"
+    env_file: "{{ service_cfg.directory }}/.env.prod"
     volumes:
       # Worker also needs access to the same ansible project and keys
       - "{{ service_cfg.directory }}/ansible_project:/app/ansible_project:ro"

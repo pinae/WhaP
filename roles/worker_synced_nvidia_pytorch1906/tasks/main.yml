@@ -16,6 +16,7 @@
       external: false
       watchtower: false
       autoheal: false
+      whap_registry: ""
       gpus: ["0"]
 
 - name: "Define project home path"
