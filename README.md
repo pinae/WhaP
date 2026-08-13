@@ -116,9 +116,41 @@ Your application is now deployed and ready to be accessed.
 
 ## Deploy with Ansible
 
-Whap can be deployed with Ansible streamlining most of the installation described above.
+WhalePond needs two things: this repository (the application and its generic
+Ansible roles), and a place to keep your own inventory — hostnames, passwords,
+LDAP credentials — which must never live in a public repository.
 
-### Ansible set-up
+The recommended layout keeps them separate. You create a private repository (or
+just a private directory) for your configuration and include WhaP inside it:
+
+    my-whap/                  # private: your inventory and secrets
+    ├── ansible.cfg
+    ├── inventory/            # your real hosts, host_vars, group_vars
+    ├── plays/                # your playbooks
+    ├── roles/                # your own site-specific roles (may be empty)
+    └── WhaP/                 # this repository, as a submodule
+
+### 1. Create the private repository
+
+    mkdir my-whap && cd my-whap
+    git init
+    mkdir -p inventory/host_vars inventory/group_vars plays roles
+
+### 2. Add WhaP
+
+As a submodule, if `my-site` is a git repository:
+
+    git submodule add https://github.com/pinae/WhaP.git WhaP
+
+Or as a plain clone, if you would rather not use submodules:
+
+    git clone https://github.com/pinae/WhaP.git WhaP
+    echo "WhaP/" >> .gitignore
+
+The directory must be named `WhaP`. If you rename it, set `app_subdir` in your
+host_vars to match.
+
+### 3. Ansible install and set-up
 
 First install `sshpass` for the first login without public key. On Ubuntu or Debian use:
 ```shell
@@ -126,36 +158,77 @@ sudo apt install sshpass
 ```
 
 Then [install Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html). 
-We recommend using `pipenv` with the Pipfile in the repository:
+We recommend using `uv` with the pyproject.tomy in the whap/backend/ folder of the repository:
 ```shell
-cd ml-ansible
-pipenv install
+cd WhaP/whap/backend
+uv sync
 ```
 
-The following commands use `pipenv` to run the ansible commands from within the virtual environment. 
-If you installed Ansible without a virtualenv remove the trailing `pipenv run` from the following commands.
+The following commands use `uv` to run the ansible commands from within the virtual environment. 
+If you installed Ansible without a virtualenv remove the trailing `uv run` from the following commands.
 
-### Install ansible modules
+### 4. Configure Ansible
 
-Ansible can be extended in different ways. To keep it small by default there is a plug-in repository called 
-"Ansible Galaxy". For this setup you need these two plug-ins (also called "modules"): 
+Create `ansible.cfg` in `my-site`:
 
-```shell script
-pipenv run ansible-galaxy collection install ansible.posix
-pipenv run ansible-galaxy collection install community.general
-pipenv run ansible-galaxy role install geerlingguy.docker
-```
+    [defaults]
+    inventory = inventory
+    roles_path = roles:WhaP/roles
+    host_key_checking = False
+
+Your own roles are searched first, so you can override a WhaP role by giving a
+role in `roles/` the same name.
+
+### 5. Create your inventory
+
+Copy the examples and edit them. Every placeholder value must be replaced:
+
+    cp WhaP/inventory.example/hosts inventory/hosts
+    cp WhaP/inventory.example/group_vars/all.yml inventory/group_vars/
+    cp WhaP/inventory.example/host_vars/*.yml inventory/host_vars/
+
+Rename the host_vars files to match your real hostnames. `storage01.example.com.yml`
+configures the machine running the web application; `worker01.example.com.yml`
+configures a compute server.
+
+### 6. Install dependencies
+
+    ansible-galaxy install -r WhaP/requirements.yml
+
+### 7. Write a playbook and deploy
+
+Copy `WhaP/plays.example/whap.yml` to `plays/whap.yml`, adjust the `hosts:` line
+to match a group in your inventory, then:
+
+    uv run ansible-playbook plays/whap.yml
+
+### Keeping WhaP up to date
+
+    git -C WhaP pull origin main
+    git add WhaP && git commit -m "Update WhaP"      # submodule only
+
+If you clone `my-site` on another machine, fetch the submodule too:
+
+    git clone --recurse-submodules <your-repo-url>
+    # or, in an existing checkout:
+    git submodule update --init --recursive
+
+### Docker registry (optional)
+
+Roles from the 2510 generation pull their images from a registry instead of
+building locally. Set `DOCKER_REGISTRY` in `.env.prod` (or `registry` in your
+host_vars) to point at it. Leave it empty to use the older build-based roles.
 
 ## Run the playbook
 
 For the first server setup you need to allow login with `--ask-pass`:
 
 ```shell
-pipenv run ansible-playbook plays/initial-setup.yml -i hosts --ask-pass --ask-become-pass
+uv run ansible-playbook plays.example/initial-setup.yml -i hosts --ask-pass --ask-become-pass
 ```
 
 ```shell script
-pipenv run ansible-playbook plays/whap.yml -i hosts
+uv run ansible-playbook plays.example/whap.yml -i hosts
 ```
 
 -----

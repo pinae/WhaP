@@ -22,7 +22,7 @@ def write_job_inventory(inventory_dir, job_id, server):
     resolves the right connection settings -- pointing at a bare per-job dir made
     it fall back to connecting as ``root``. The *filename* is per-job, so two
     jobs running concurrently never overwrite one another's target host (the
-    original bug was a single shared ``99_dynamic_hosts.ini``). Generated plays
+    original bug was a single shared ``99_dynamic_hosts.ini``). Generated plays.example
     target a specific hostname, so another job's host file present in the dir is
     simply ignored.
     """

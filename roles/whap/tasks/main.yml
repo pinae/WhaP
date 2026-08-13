@@ -46,7 +46,7 @@
 - name: "Copy {{ service_cfg.name }} .env.prod"
   template:
     src: env.prod.j2
-    dest: '{{ service_cfg.directory }}/whap/backend/.env.prod'
+    dest: '{{ service_cfg.directory }}/.env.prod'
     owner: '{{ admin.name }}'
     group: 'docker'
 
@@ -54,7 +54,7 @@
   community.docker.docker_image:
     name: '{{ service_cfg.name }}-api'
     build:
-      path: '{{ service_cfg.directory }}/whap/backend/'
+      path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/backend/'
       args:
         USER_ID: "{{ service_cfg.uid }}"
         GROUP_ID: "{{ service_cfg.gid }}"
@@ -67,7 +67,7 @@
   community.docker.docker_image:
     name: '{{ service_cfg.name }}-nginx'
     build:
-      path: '{{ service_cfg.directory }}/whap/frontend/'
+      path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/frontend/'
       nocache: true
       rm: true
     source: build

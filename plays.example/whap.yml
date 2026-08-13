@@ -1,0 +1,6 @@
+- hosts: storage
+  become: true
+  roles:
+    - role: whap
+      vars:
+        service_cfg: "{{ whap }}"
