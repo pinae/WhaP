@@ -29,7 +29,7 @@ There are three setups, meant for different things:
 | **Production** | Storage server hosting the app, several compute servers | Ansible, same roles, larger inventory |
 
 The development setup is described below. For the other two see
-[Deploy with Ansible](#Deploy with Ansible) — they use
+Deploy with Ansible — they use
 the same Ansible roles and differ only in the inventory you write.
 
 -----
@@ -64,12 +64,15 @@ sudo apt install build-essential libldap2-dev libsasl2-dev
 ```bash
 git clone https://github.com/pinae/WhaP.git
 cd WhaP
-docker compose up -d
+docker compose up
 ```
 
 This gives you PostgreSQL on `localhost:5432`, Redis on `localhost:6379` and
 InfluxDB on `localhost:8086`, all bound to the loopback interface. Stop them
 with `docker compose down`, or `docker compose down -v` to wipe the data.
+
+Leave this running — it is terminal 1 of the four below. Open a second 
+terminal for the next steps.
 
 ### 3. Configure and migrate the backend
 
@@ -95,16 +98,16 @@ uv run flask create-admin
 ### 5. Run it — four terminals
 
 ```bash
-# 1: Databases
+# 1: Databases (already started after the clone if you followed this tutorial)
 docker compose up
 
-# 1: API and WebSocket server, reloads on save
+# 2: API and WebSocket server, reloads on save
 cd whap/backend && uv run python run.py
 
-# 2: job runner, restart manually after changing worker code
+# 3: job runner, restart manually after changing worker code
 cd whap/backend && uv run python worker.py
 
-# 3: frontend dev server, hot reloads on save
+# 4: frontend dev server, hot reloads on save
 cd whap/frontend && yarn install && yarn start
 ```
 
@@ -113,13 +116,6 @@ Then open http://localhost:3000. The frontend talks to the backend at
 
 The worker deliberately does not reload — restarting it mid-job would orphan a
 running playbook.
-
-### Running the backend tests
-
-```bash
-cd whap/backend
-uv run python -m pytest -q
-```
 
 ### Limits of the development setup
 
@@ -138,104 +134,6 @@ them; LDAP logins fail, local users work.
 Values in `docker-compose.yml` can be overridden from a `.env` file next to it
 in the repository root (gitignored). If you change the database credentials
 there, change `DATABASE_URL` in `whap/backend/.env` to match.
-
-## Basic Docker Deployment Setup
-
-You may deploy this as a multi-container application using Docker Compose. However 
-note that there is a Ansible based setup that gives you the same with less manual configuration.
-
-The following instructions assume you have [Docker](https://docs.docker.com/engine/install/) and its `compose` plug-in 
-installed on your host machine.
-
-### 1\. Configuration
-
-Before launching the application, you must create several configuration files and directories 
-at the root of the project.
-
-**a. Environment Files** Create two environment files: `.env.prod` for the application 
-and `.env.db` for the database.
-
-**`.env.prod` (Application Configuration):**
-
-```env
-# Generate a new, strong secret key for production
-SECRET_KEY=generate_a_real_secret_key_here
-
-# Database connection string
-DATABASE_URL=postgresql://whap_user:a_secure_password@db:5432/whap_db
-
-# Paths inside the container for Ansible volumes
-ANSIBLE_RUNNER_DIR=/app/ansible_runner
-ANSIBLE_PROJECT_DIR=/app/ansible_project
-ANSIBLE_ROLES_PATH=/app/ansible_project/roles
-ANSIBLE_CONTAINER_BASE_DIR=/docker
-PROJECT_HOST_BASE_PATH=/data/projects
-ANSIBLE_SSH_PRIVATE_KEY_FILE=/root/.ssh/id_rsa_compute
-
-# Internal URL for worker-to-backend communication
-INTERNAL_API_URL=http://backend:5000/api/internal/job_update
-
-# LDAP Settings (must be configured)
-LDAP_SERVER_URI="ldaps://ldap.example.com:636"
-LDAP_USER_BASE_DN="ou=people,dc=example,dc=com"
-LDAP_BIND_USER="cn=service_account,ou=services,dc=example,dc=com"
-LDAP_BIND_PASSWORD="service_account_password"
-LDAP_TLS_OPTION="DEMAND"
-```
-
-**`.env.db` (Database Credentials):**
-
-```env
-POSTGRES_USER=whap_user
-POSTGRES_PASSWORD=a_secure_password
-POSTGRES_DB=whap_db
-```
-
-**b. Host Volume Directories** The application requires access to your Ansible roles and an SSH key 
-to connect to compute servers. Create these directories at the project root:
-
-```bash
-# Create a directory for your Ansible project (roles, host_vars, etc.)
-mkdir -p ./ansible_project/roles
-
-# Create a directory for the SSH key
-mkdir -p ./ansible_ssh_key
-```
-
-  * Place your Ansible roles into the `./ansible_project/roles` directory.
-  * Place the SSH private key used to access your compute servers into `./ansible_ssh_key/id_rsa`.
-
-### 2\. Build and Launch Containers
-
-Once configured, use Docker Compose to build the images and launch the application stack.
-
-```bash
-# Build images and start all services in detached mode
-docker compose -f docker-compose.yml up -d --build
-```
-
-### 3\. Initialize the Database
-
-After the containers are running, you must initialize the database schema by applying the migrations.
-
-```bash
-# Wait a moment for the database to be fully ready
-sleep 15
-
-# 1. Apply database schema migrations
-docker compose -f docker-compose.yml exec backend flask db upgrade
-```
-
-### 4\. Create an Admin User
-
-Finally, create the initial administrator account.
-
-```bash
-# Run the interactive command to create your admin user
-docker compose -f docker-compose.yml exec backend flask create-admin
-```
-
-Your application is now deployed and ready to be accessed.
 
 ## Deploy with Ansible
 
@@ -348,12 +246,6 @@ building locally. Set `DOCKER_REGISTRY` in `.env.prod` (or `whap_registry` in yo
 host_vars) to point at it. Leave it empty to use the older build-based roles.
 
 ## Run the playbook
-
-For the first server setup you need to allow login with `--ask-pass`:
-
-```shell
-ansible-playbook plays.example/initial-setup.yml -i hosts --ask-pass --ask-become-pass
-```
 
 ```shell script
 ansible-playbook plays.example/whap.yml -i hosts

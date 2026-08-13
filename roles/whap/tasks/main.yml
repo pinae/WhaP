@@ -21,7 +21,7 @@
       redis:
         version: "6.2"
       influxdb:
-        version: "3-core"
+        version: "2.7"
         org: "whap_org"
         admin_username: "influx_admin"
         #admin_password: "sectretPASSWORD"

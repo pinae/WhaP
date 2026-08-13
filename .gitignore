@@ -234,3 +234,5 @@ id_ed25519*
 plays/from_runner/
 .ansible/
 *.retry
+.ansible_runner/
+.dev_data/
