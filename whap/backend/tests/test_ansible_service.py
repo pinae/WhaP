@@ -82,3 +82,50 @@ def test_playbook_and_runner_data_live_under_ansible_runner_dir(app, db, monkeyp
     assert not os.path.exists(seen["playbook"])          # ...and cleaned up after
     assert seen["private_data_dir"] == str(runner_dir / "job_9")
     assert "PLAY RECAP" in log
+
+
+def test_what_the_job_process_writes_is_committed(app, db, monkeypatch, tmp_path, make_local_user, make_project,
+                                                    make_server, make_network, make_static_address):
+    """execute_ansible_job opened a nested app context, so its db.session.commit()
+    committed a fresh, empty session while the job and container it changed
+    belonged to the caller's, which run_job.py never commits. Every write was
+    lost when the worker exited: the log a reconnecting browser is replayed,
+    the playbook, and -- worst -- the container name, so a container whose
+    creation failed could never be deleted (the delete playbook got None).
+    """
+    import json
+    import app.services.ansible_service as service
+    from app.models import AnsibleJob, ContainerInstance
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "stdout").write_text("PLAY RECAP\ntycho : failed=1\n")
+    monkeypatch.setattr(service.ansible_runner, "run", lambda **config: SimpleNamespace(
+        status="failed", rc=2, config=SimpleNamespace(artifact_dir=str(artifacts))))
+
+    owner = make_local_user(username="alice")
+    server = make_server(hostname="tycho", gpu_count=1)
+    address = make_static_address(make_network(name="lab"), servers=[server])
+    container = ContainerInstance(user_local_user_id=owner.id, project_id=make_project(owner, name="thesis").id,
+                                  compute_server_id=server.id, image_name="worker_local_ubuntu2510_ssh", gpus="0",
+                                  status="STARTING", static_address_id=address.id)
+    db.session.add(container)
+    db.session.flush()
+    job = AnsibleJob(container_instance_id=container.id, server_id=server.id, status="RUNNING", action="create",
+                     extravars=json.dumps({"container_password": "pw"}))
+    db.session.add(job)
+    db.session.commit()
+    job_id, container_id = job.id, container.id
+
+    execute_ansible_job(db.session.get(AnsibleJob, job_id), _noop_callback)
+    db.session.remove()  # what the worker process exiting does to anything uncommitted
+
+    job = db.session.get(AnsibleJob, job_id)
+    container = db.session.get(ContainerInstance, container_id)
+    assert job.log.startswith("Starting Ansible job for action: create")
+    assert "--- Playbook Content ---" in job.log
+    assert job.log.count("--- Ansible STDOUT ---") == 1 and "PLAY RECAP" in job.log
+    assert job.playbook and json.loads(job.playbook)[0]["hosts"] == "tycho"
+    assert job.status == "FAILED"
+    assert container.container_name == f"alice-thesis-{container_id}"  # so it can be deleted
+    assert container.static_address_id is None                         # released on failure

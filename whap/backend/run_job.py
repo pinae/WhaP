@@ -29,16 +29,18 @@ def main(job_id):
 
         ## The actual ansible execution logic is in the service layer.
         # It takes the job object and a callback function for real-time logs.
-        final_status, final_log, runner_status, extra_data = ansible_service.execute_ansible_job(
+        final_status, _log, runner_status, extra_data = ansible_service.execute_ansible_job(
             job,
             lambda event: send_update(job.id, event) # Pass the HTTP callback handler for logs
         )
 
-        # Report the final completion status to the main app.
+        # Report the final completion status to the main app. No final_log:
+        # execute_ansible_job has already committed the output to job.log, and
+        # the web process appends final_log only when it is sent (the crash
+        # path below, where nothing was committed).
         print(f"WORKER END: Job {job.id} finished with status '{runner_status}'.")
         send_update(job.id, {
             'final_status': final_status,
-            'final_log': final_log,
             'runner_status': runner_status,
             'extra_data': extra_data
         })

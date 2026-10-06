@@ -49,9 +49,11 @@ def process_updates_in_batch(batch):
 
             app.logger.info(f"{job_id}: {event['stdout'] if 'stdout' in event else event}")
 
-            # Use a direct query for freshness
+            # populate_existing: within a batch the session's identity map would
+            # otherwise hand back the job as first loaded, missing what the
+            # worker has committed since -- and a later write would clobber it.
             job = db.session.execute(
-                db.select(AnsibleJob).filter_by(id=job_id)
+                db.select(AnsibleJob).filter_by(id=job_id).execution_options(populate_existing=True)
             ).scalar_one_or_none()
             if not job:
                 app.logger.warning(f"Received job_update for non-existent job ID: {job_id}")
@@ -93,7 +95,8 @@ def _handle_final_status(job, container, event):
         else:
             # Standard logic for other actions (create, stop, etc.)
             job.status = 'SUCCESSFUL' if runner_status == 'successful' else 'FAILED'
-            job.log += f"\n--- Ansible STDOUT ---\n{final_log}\n--- End STDOUT ---"
+            if final_log:  # only sent when the worker could not commit the log itself
+                job.log += f"\n--- Ansible STDOUT ---\n{final_log}\n--- End STDOUT ---"
             container.status = final_status
             if extra_data:
                 for key, value in extra_data.items():
