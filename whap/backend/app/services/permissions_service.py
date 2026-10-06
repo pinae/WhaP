@@ -106,6 +106,26 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
     return True, None
 
 
+def allowed_gpus(user_perms, server):
+    """The GPU indices (as strings, ascending) the user may use on ``server``.
+
+    Single source of truth for both what the container form enables and what
+    container creation accepts, so the two cannot drift apart. ``user_perms``
+    is get_user_permissions() output; its gpu_access is '*' or
+    {server_id: "all" | "0,1"}. GPUs a rule names that the server does not
+    have are dropped.
+    """
+    installed = [str(i) for i in range(server.gpu_count or 0)]
+    gpu_access = user_perms.get('gpu_access')
+    rule = 'all' if gpu_access == '*' else (gpu_access or {}).get(server.id)
+    if rule == 'all':
+        return installed
+    if not rule:
+        return []
+    granted = {g.strip() for g in rule.split(',')}
+    return [g for g in installed if g in granted]
+
+
 def user_can_access_container(user, container):
     """Return True if ``user`` may view/manage ``container`` (its owner or an admin).
 

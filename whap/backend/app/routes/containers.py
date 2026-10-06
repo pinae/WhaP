@@ -188,12 +188,21 @@ def create_container():
     # Check Permissions
     user_perms = permissions_service.get_user_permissions(current_user.get_id())
 
+    # Checks below key on server.id: the permission maps use int ids, and the
+    # request's serverId may arrive as a string.
     # Check Server Access
-    if '*' not in user_perms['accessible_server_ids'] and server_id not in user_perms['accessible_server_ids']:
+    if '*' not in user_perms['accessible_server_ids'] and server.id not in user_perms['accessible_server_ids']:
         return jsonify({"message": "You do not have access to this compute server."}), 403
 
+    # Check GPU Permission. Requesting no GPU is always allowed.
+    allowed_gpus = permissions_service.allowed_gpus(user_perms, server)
+    forbidden = [g for g in gpus if g not in allowed_gpus]
+    if forbidden:
+        return jsonify({"message": f"You may not use GPU {', '.join(forbidden)} on {server.hostname}. "
+                                   f"Your groups allow: {', '.join(allowed_gpus) or 'none'}."}), 403
+
     # Check CPU Limit Permission
-    allowed_cpu_limit = user_perms.get('cpu_limits', {}).get(server_id)
+    allowed_cpu_limit = user_perms.get('cpu_limits', {}).get(server.id)
     # If allowed_cpu_limit is None, it means UNLIMITED access.
     # If allowed_cpu_limit is a number, user is capped at that number.
 

@@ -125,8 +125,11 @@ def get_my_available_servers():
         cpu_limits = permissions.get('cpu_limits', {})
         for s in servers:
             s_dict = s.to_dict()
-            # Inject the user specific CPU limit
+            # Inject the user specific CPU limit and usable GPUs. gpu_count
+            # stays the number installed: the form shows every GPU and greys
+            # out the ones not in allowed_gpus.
             s_dict['cpu_limit'] = cpu_limits.get(s.id)
+            s_dict['allowed_gpus'] = permissions_service.allowed_gpus(permissions, s)
             server_dicts.append(s_dict)
 
         return jsonify(server_dicts), 200

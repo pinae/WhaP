@@ -6,8 +6,10 @@ string 'none' when no GPU is ticked, which was stored as gpus='none' and
 rendered into the compose file as device_ids: ["none"] -- CPU-only containers
 could not start. Indices are now checked against the server's GPU count.
 
-Group GPU rules are deliberately *not* enforced here (yet): the UI offers every
-GPU of the server, so enforcing them is a policy change, not a bug fix.
+Group GPU rules are enforced too. They were computed but never checked, so
+anyone with access to a server could take any of its GPUs. The form shows
+every installed GPU and greys out those not in the server's allowed_gpus, which
+comes from the same permissions_service.allowed_gpus() the check uses.
 """
 import types
 
@@ -16,6 +18,7 @@ import pytest
 from app import socketio
 from app.models import ContainerInstance
 from app.routes.containers import parse_gpu_request
+from app.services.permissions_service import allowed_gpus
 
 SERVER = types.SimpleNamespace(hostname="tycho", gpu_count=2)
 
@@ -82,3 +85,65 @@ def test_an_invalid_gpu_request_is_a_400_and_creates_nothing(client, db, create_
     resp = client.post("/api/containers", json={**create_env, "gpus": gpus})
     assert resp.status_code == 400, resp.get_data(as_text=True)
     assert db.session.scalar(db.select(db.func.count()).select_from(ContainerInstance)) == 0
+
+
+# --- GPU permissions ----------------------------------------------------------
+
+FOUR_GPUS = types.SimpleNamespace(id=7, hostname="tycho", gpu_count=4)
+
+
+@pytest.mark.parametrize("gpu_access, expected", [
+    ({7: "all"}, ["0", "1", "2", "3"]),
+    ("*", ["0", "1", "2", "3"]),
+    ({7: "1,3"}, ["1", "3"]),
+    ({7: " 3 , 1 "}, ["1", "3"]),        # rules are stored as typed in the UI
+    ({7: "1,9"}, ["1"]),                 # a GPU the server doesn't have is dropped
+    ({8: "all"}, []),                    # a rule for another server grants nothing here
+    ({}, []),
+    (None, []),
+])
+def test_allowed_gpus(gpu_access, expected):
+    assert allowed_gpus({"gpu_access": gpu_access}, FOUR_GPUS) == expected
+
+
+@pytest.fixture
+def partial_env(app, db, make_local_user, make_project, make_server, make_network, make_static_address,
+                make_group, add_member, login_as, monkeypatch):
+    """A user granted only GPU 1 of a two-GPU server."""
+    user = make_local_user(username="gpu1_user")
+    project = make_project(owner=user, name="thesis")
+    server = make_server(hostname="tycho", gpu_count=2)
+    make_static_address(network=make_network(name="lab-private"), servers=[server])
+    group = make_group(image_whitelist=["*"], servers=[server], gpu_rules={server.id: "1"})
+    add_member(group, user)
+    monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
+    login_as(user)
+    return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh"}
+
+
+@pytest.mark.parametrize("gpus, status", [("1", 201), ("none", 201), ("0", 403), ("0,1", 403)])
+def test_create_enforces_the_users_gpu_rules(client, db, partial_env, gpus, status):
+    """Rules used to be computed but never checked: any GPU of an accessible server could be taken."""
+    resp = client.post("/api/containers", json={**partial_env, "gpus": gpus})
+    assert resp.status_code == status, resp.get_data(as_text=True)
+    if status == 403:
+        assert "You may not use GPU 0 on tycho. Your groups allow: 1." in resp.get_json()["message"]
+        assert db.session.scalar(db.select(db.func.count()).select_from(ContainerInstance)) == 0
+
+
+def test_a_server_id_sent_as_a_string_is_checked_like_an_int(client, db, partial_env):
+    resp = client.post("/api/containers", json={**partial_env, "serverId": str(partial_env["serverId"]),
+                                                "gpus": "0"})
+    assert resp.status_code == 403, resp.get_data(as_text=True)
+
+
+def test_the_form_learns_every_installed_gpu_and_which_are_allowed(client, partial_env):
+    servers = client.get("/api/permissions/my-available-servers").get_json()
+    assert [(s["hostname"], s["gpu_count"], s["allowed_gpus"]) for s in servers] == [("tycho", 2, ["1"])]
+
+
+def test_admins_may_use_every_gpu(client, db, admin_user, make_server, login_as):
+    make_server(hostname="tycho", gpu_count=2)
+    login_as(admin_user)
+    servers = client.get("/api/permissions/my-available-servers").get_json()
+    assert servers[0]["allowed_gpus"] == ["0", "1"]

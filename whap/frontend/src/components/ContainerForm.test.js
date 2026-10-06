@@ -67,6 +67,30 @@ test('a single available server is pre-selected and its GPUs are offered', async
     expect(screen.queryByTestId('container-gpu-1')).not.toBeInTheDocument();
 });
 
+test('GPUs the user may not use are shown but disabled', async () => {
+    const servers = [{ id: 5, hostname: 'tycho', gpu_count: 3, cpu_limit: null, allowed_gpus: ['1'] }];
+    const fallback = api.get.getMockImplementation();
+    api.get.mockImplementation(async (url) =>
+        url === '/api/permissions/my-available-servers' ? { data: servers } : fallback(url));
+    renderForm();
+
+    expect(await screen.findByTestId('container-gpu-1')).toBeEnabled();
+    expect(screen.getByTestId('container-gpu-0')).toBeDisabled();
+    expect(screen.getByTestId('container-gpu-2')).toBeDisabled();
+    expect(screen.getByTestId('container-gpu-restricted')).toHaveTextContent('not available to you');
+
+    fireEvent.click(screen.getByTestId('container-gpu-1'));
+    expect(screen.getByTestId('container-gpu-1')).toBeChecked();
+});
+
+test('without an allowed_gpus list nothing is greyed out', async () => {
+    // The default server above sends no allowed_gpus, as an older backend
+    // would; the server enforces the rule either way.
+    renderForm();
+    expect(await screen.findByTestId('container-gpu-0')).toBeEnabled();
+    expect(screen.queryByTestId('container-gpu-restricted')).not.toBeInTheDocument();
+});
+
 test('a project created with the + button is selected in the form', async () => {
     // Regression: the form passed onProjectCreated, a prop the modal does not
     // have. The POST succeeded, then calling the missing onProjectSaved threw,

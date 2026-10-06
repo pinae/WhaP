@@ -202,6 +202,14 @@ function ContainerForm({ onContainerCreated }) {
         [selectedServer]
     );
 
+    // Every installed GPU is shown; those the user's groups don't include are
+    // disabled. The server enforces the same list, so a backend that doesn't
+    // send it yet just means nothing is greyed out.
+    const allowedGpus = useMemo(() =>
+        selectedServer?.allowed_gpus ?? gpuOptions,
+        [selectedServer, gpuOptions]
+    );
+
     const publicIpConfig = useMemo(() => {
         if (!formData.serverId || allAddresses.length === 0 || allNetworks.length === 0) {
             return { isVisible: false, isDisabled: true, isForced: false, helperText: '' };
@@ -731,22 +739,32 @@ function ContainerForm({ onContainerCreated }) {
                                 {selectedServer && selectedServer.gpu_count > 0 ? (
                                     <FormControl component="fieldset" variant="standard">
                                         <FormGroup row>
-                                            {gpuOptions.map((gpuNum) => (
-                                                <FormControlLabel
-                                                    key={gpuNum}
-                                                    control={
-                                                        <Checkbox
-                                                            checked={formData.gpus.includes(gpuNum)}
-                                                            onChange={handleGpuChange}
-                                                            value={gpuNum}
-                                                            disabled={loadingSubmit}
-                                                            slotProps={{ input: { 'data-testid': `container-gpu-${gpuNum}` } }}
+                                            {gpuOptions.map((gpuNum) => {
+                                                const allowed = allowedGpus.includes(gpuNum);
+                                                return (
+                                                    <Tooltip key={gpuNum} title={allowed ? '' : "Your groups don't include this GPU"}>
+                                                        <FormControlLabel
+                                                            disabled={!allowed || loadingSubmit}
+                                                            control={
+                                                                <Checkbox
+                                                                    checked={formData.gpus.includes(gpuNum)}
+                                                                    onChange={handleGpuChange}
+                                                                    value={gpuNum}
+                                                                    disabled={!allowed || loadingSubmit}
+                                                                    slotProps={{ input: { 'data-testid': `container-gpu-${gpuNum}` } }}
+                                                                />
+                                                            }
+                                                            label={`GPU ${gpuNum}`}
                                                         />
-                                                    }
-                                                    label={`GPU ${gpuNum}`}
-                                                />
-                                            ))}
+                                                    </Tooltip>
+                                                );
+                                            })}
                                         </FormGroup>
+                                        {gpuOptions.some(gpu => !allowedGpus.includes(gpu)) && (
+                                            <FormHelperText data-testid="container-gpu-restricted">
+                                                Greyed-out GPUs are not available to you. An admin can change your groups.
+                                            </FormHelperText>
+                                        )}
                                     </FormControl>
                                 ) : (
                                     <Typography variant="body2" color="text.secondary">
