@@ -7,9 +7,9 @@ ENV LANG=de_DE.utf8
 # Update, install dependencies, and setup locale
 RUN apt-get update && apt-get install -y --no-install-recommends \
       # System & Networking
-      locales openssh-server vim iproute2 iputils-ping net-tools wget curl screen sudo \
+      locales openssh-server vim iproute2 iputils-ping net-tools wget curl screen tmux sudo \
       # Python & Build Tools
-      python3-pip python3-numpy python3-ipython pipenv git build-essential cmake ccache sed \
+      python3-pip python3-venv python3-numpy python3-ipython pipenv git build-essential cmake ccache sed \
       # System Tools
       software-properties-common gnupg2 \
     # Setup locale
