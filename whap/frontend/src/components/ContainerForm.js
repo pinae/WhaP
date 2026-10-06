@@ -425,7 +425,7 @@ function ContainerForm({ onContainerCreated }) {
                 ...prev,
                 imageId: '', // Reset image selection
                 sshKeyId: '',
-                gpus: ['0', '1', '2', '3'],
+                gpus: [],
                 cpuLimit: 'unlimited',
                 password: '',
             }));

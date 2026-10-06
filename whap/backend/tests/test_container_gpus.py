@@ -58,7 +58,8 @@ def create_env(app, db, make_local_user, make_project, make_server, make_network
     add_member(group, user)
     monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
     login_as(user)
-    return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh"}
+    return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh",
+            "password": "pw"}
 
 
 @pytest.mark.parametrize("payload_gpus", [None, "none", ""])
@@ -118,7 +119,8 @@ def partial_env(app, db, make_local_user, make_project, make_server, make_networ
     add_member(group, user)
     monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
     login_as(user)
-    return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh"}
+    return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh",
+            "password": "pw"}
 
 
 @pytest.mark.parametrize("gpus, status", [("1", 201), ("none", 201), ("0", 403), ("0,1", 403)])

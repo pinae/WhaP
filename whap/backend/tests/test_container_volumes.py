@@ -68,6 +68,7 @@ def _create_payload(env, additional_volumes):
         "projectId": env["project"].id,
         "serverId": env["server"].id,
         "imageName": "worker_synced_ubuntu2404_ssh",
+        "password": "pw",
         "gpus": "0",
         "additional_volumes": additional_volumes,
     }

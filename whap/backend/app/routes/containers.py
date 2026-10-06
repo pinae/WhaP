@@ -144,6 +144,10 @@ def create_container():
     # --- Validate inputs ---
     if not all([project_id, server_id, image_name]):
         return jsonify({"message": "Missing required fields (Project, Server, Image)"}), 400
+    # Without either, the container gets a random password nobody knows and
+    # can never be logged into. The form refuses this too.
+    if not password and not ssh_key_id:
+        return jsonify({"message": "A password or an SSH key is required."}), 400
 
     # --- Find associated objects and check ownership/validity ---
     # Find project BELONGING TO CURRENT USER
