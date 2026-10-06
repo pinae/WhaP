@@ -114,3 +114,29 @@ def test_login_cookie_round_trips_under_test_config(app, make_local_user):
     body = session.get_json()
     assert body["isLoggedIn"] is True
     assert body["user"]["username"] == "rt_user"
+
+
+# --- ANSIBLE_RUNNER_DIR ---------------------------------------------------------
+# Config never read it, so the startup check always warned, and ansible_service
+# hard-coded <ANSIBLE_PROJECT_DIR>/ansible_runner regardless of the setting.
+
+def test_runner_dir_is_read_and_made_absolute(monkeypatch, tmp_path):
+    from app.config import _runner_dir
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANSIBLE_RUNNER_DIR", "runs")
+    monkeypatch.setenv("ANSIBLE_PROJECT_DIR", "/backend")
+    assert _runner_dir() == str(tmp_path / "runs")
+
+
+def test_runner_dir_defaults_to_the_previous_hard_coded_path(monkeypatch):
+    from app.config import _runner_dir
+    monkeypatch.delenv("ANSIBLE_RUNNER_DIR", raising=False)
+    monkeypatch.setenv("ANSIBLE_PROJECT_DIR", "/backend")
+    assert _runner_dir() == "/backend/ansible_runner"
+
+
+def test_runner_dir_is_unset_without_either(monkeypatch):
+    from app.config import _runner_dir
+    monkeypatch.delenv("ANSIBLE_RUNNER_DIR", raising=False)
+    monkeypatch.delenv("ANSIBLE_PROJECT_DIR", raising=False)
+    assert _runner_dir() is None

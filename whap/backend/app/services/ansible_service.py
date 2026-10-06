@@ -13,6 +13,11 @@ from .compose_builder import build_compose_file
 from .. import socketio
 
 
+def runner_path(app, *parts):
+    """A path under ANSIBLE_RUNNER_DIR, where playbooks and per-job runner data live."""
+    return os.path.join(app.config['ANSIBLE_RUNNER_DIR'], *parts)
+
+
 def write_job_inventory(inventory_dir, job_id, server):
     """Write this job's dynamic host file into the shared inventory directory
     under a per-job filename, and return the path written.
@@ -72,7 +77,7 @@ def execute_ansible_job(job, event_callback):
         db.session.commit()
 
         # --- Playbook Generation ---
-        playbook_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'ansible_runner', 'playbooks')
+        playbook_dir = runner_path(app, 'playbooks')
         os.makedirs(playbook_dir, exist_ok=True)
         playbook_path = os.path.join(playbook_dir, f'{action}_{server.id}_{container.id}_{job.id}.yml')
 
@@ -315,7 +320,7 @@ def execute_ansible_job(job, event_callback):
             return 'ERROR', job.log, 'failed', {}
 
         # --- Ansible Runner Configuration ---
-        private_data_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'ansible_runner', f"job_{job.id}")
+        private_data_dir = runner_path(app, f"job_{job.id}")
         os.makedirs(private_data_dir, exist_ok=True)
 
         # Dynamic inventory: written into the SHARED inventory dir so ansible
@@ -439,7 +444,7 @@ def run_create_project_directory(app, username, project_name):
             return
 
         # --- Playbook Generation ---
-        playbook_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'ansible_runner', 'playbooks')
+        playbook_dir = runner_path(app, 'playbooks')
         os.makedirs(playbook_dir, exist_ok=True)
         playbook_path = os.path.join(playbook_dir, f'create_dir_{job_id}.yml')
 
@@ -483,7 +488,7 @@ def run_create_project_directory(app, username, project_name):
             return
 
         # --- Ansible Runner Execution ---
-        private_data_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'ansible_runner', job_id)
+        private_data_dir = runner_path(app, job_id)
         os.makedirs(private_data_dir, exist_ok=True)
 
         # Dynamic inventory for the target hosts

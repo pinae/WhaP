@@ -20,6 +20,20 @@ INSECURE_SECRET_KEY = 'a-very-secretive-secret-key-please-change'
 LDAP_TLS_OPTIONS = ('DEMAND', 'ALLOW', 'NEVER')
 
 
+def _runner_dir():
+    """Where generated playbooks and ansible-runner's per-job data go.
+
+    ANSIBLE_RUNNER_DIR if set, else <ANSIBLE_PROJECT_DIR>/ansible_runner -- the
+    path always used before the setting was read. Absolute, because
+    ansible-runner changes directory.
+    """
+    if os.environ.get('ANSIBLE_RUNNER_DIR'):
+        return os.path.abspath(os.environ['ANSIBLE_RUNNER_DIR'])
+    if os.environ.get('ANSIBLE_PROJECT_DIR'):
+        return os.path.join(os.path.abspath(os.environ['ANSIBLE_PROJECT_DIR']), 'ansible_runner')
+    return None
+
+
 class Config:
     # --- Core Flask Settings ---
     # Mandatory: no in-source fallback. check_critical_config() fails fast if
@@ -81,6 +95,7 @@ class Config:
     # Set Ansible Runner verbosity (True hides most Ansible output)
     ANSIBLE_SSH_PRIVATE_KEY_FILE = os.environ.get('ANSIBLE_SSH_PRIVATE_KEY_FILE')
     ANSIBLE_PROJECT_DIR = os.environ.get('ANSIBLE_PROJECT_DIR')
+    ANSIBLE_RUNNER_DIR = _runner_dir()
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. Use specific URLs in production!
