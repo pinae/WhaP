@@ -5,14 +5,48 @@ running the application and a compute server with a GPU. They drive the
 frontend the way a person would, through the `data-testid` attributes described
 in the top-level README.
 
-This directory currently holds the test rig's fixtures. The test suite itself
-follows.
-
 Run the tests from a machine on the compute server's container network, but
 not from the compute server itself. Containers get their own address on a
 macvlan network and are reached over SSH at that address; Linux does not let a
 host talk to its own macvlan children, so from tycho they are unreachable.
 The storage server is the natural place.
+
+## Running the tests
+
+Deploy the rig with the fixtures enabled (below), then, in this directory:
+
+```bash
+cp rig.example.toml rig.toml      # describe the rig: URL, passwords, paths
+cp seed.example.yml seed.yml      # the rig's server, network and addresses
+uv sync
+uv run playwright install chromium   # or set [browser] executable in rig.toml
+uv run pytest
+```
+
+Every session starts by resetting the rig and seeding it (see "Seeding the
+rig"), so runs don't depend on each other. If a previous run left containers
+behind, the session stops and lists them; delete them in WhaP, or run with
+`--force-reset` to drop their records. Use `--rig` or `WHAP_E2E_RIG` to point at
+another rig file, and `--headed` to watch the browser.
+
+A failed test leaves a Playwright trace and a screenshot in `test-results/`;
+open the trace with `uv run playwright show-trace <file>`.
+
+### What runs today
+
+`tests/test_identity.py` covers what a user does before starting a
+container, in about 15 seconds:
+
+- signing in through LDAP (and that it is an LDAP session), signing out, and
+  being refused with a wrong password
+- adding an SSH key, which survives a reload byte for byte
+- creating a project, and the worker creating its directory on the storage
+  server, owned by the user's LDAP uid and gid
+- sharing a project with another user found through the LDAP user search, and
+  that share and the e2e dataset being offered as volumes
+
+Tests address the UI through page objects in `pages/`, never through selectors,
+so a frontend change touches only that package.
 
 ## LDAP directory
 

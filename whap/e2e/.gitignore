@@ -1,0 +1,5 @@
+# Per-rig configuration: hostnames, addresses and passwords.
+rig.toml
+seed.yml
+# Playwright traces and screenshots of failed tests.
+test-results/

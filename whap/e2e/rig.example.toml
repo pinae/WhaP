@@ -1,0 +1,39 @@
+# The test rig the end-to-end tests run against. Copy to rig.toml (gitignored)
+# and fill in; or point WHAP_E2E_RIG at another file.
+
+[whap]
+# The frontend, as a browser on the machine running the tests reaches it.
+url = "https://whap-test.example.com"
+
+# The e2e LDAP directory's people (whap/e2e/ldap). Passwords are the
+# e2e.alice_password / e2e.bob_password from the storage server's host_vars.
+[users.alice]
+uid = "e2e-alice"
+password = "..."
+
+[users.bob]
+uid = "e2e-bob"
+password = "..."
+
+[storage]
+# How to run a command on the storage server: [] when the tests run there,
+# which is also where they must run from to reach the containers (README.md).
+shell = []
+# e.g. shell = ["ssh", "victor"]
+
+# The backend's flask CLI, run after `shell`.
+backend_cli = ["docker", "exec", "-i", "whap-backend", "flask"]
+
+# The seed spec (see seed.example.yml), relative to this file. Reset and seed
+# run once at the start of every session.
+seed_spec = "seed.yml"
+
+# whap.projects_dir from the storage server's host_vars. Project directories
+# are created at <projects_dir>/<owner>/<project>.
+projects_dir = "/data/projects"
+
+[browser]
+# Optional: a Chromium to use instead of the one `playwright install` fetches.
+# executable = "/usr/bin/chromium"
+# Optional: accept the rig's TLS certificate even if the browser doesn't trust it.
+# ignore_https_errors = true

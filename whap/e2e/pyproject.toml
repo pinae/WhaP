@@ -1,0 +1,22 @@
+[project]
+name = "whap-e2e"
+version = "0.1.0"
+description = "End-to-end tests for Fischer's Whale Pond (WhaP), run against a test rig"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.0",
+    "pytest-playwright>=0.7",
+    "playwright>=1.56",
+    "cryptography>=43",
+]
+
+# Tests, not a library: uv manages the environment only.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# Run from this directory (whap/e2e): `uv run pytest`. See README.md.
+pythonpath = ["."]
+testpaths = ["tests"]
+# Keep a Playwright trace and a screenshot of every failure in test-results/.
+addopts = "-v --tracing retain-on-failure --screenshot only-on-failure --output test-results"
