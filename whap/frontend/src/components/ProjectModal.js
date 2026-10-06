@@ -89,12 +89,10 @@ function ProjectModal({ open, onClose, onProjectSaved, projectToEdit }) {
                 }))
             };
 
-            if (isEditMode) {
-                await api.put(`/api/projects/${projectToEdit.id}`, payload);
-            } else {
-                await api.post('/api/projects', payload);
-            }
-            onProjectSaved();
+            const response = isEditMode
+                ? await api.put(`/api/projects/${projectToEdit.id}`, payload)
+                : await api.post('/api/projects', payload);
+            onProjectSaved(response.data);
             handleClose();
         } catch (err) {
             console.error("Failed to save project:", err);

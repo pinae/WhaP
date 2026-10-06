@@ -816,8 +816,7 @@ function ContainerForm({ onContainerCreated }) {
             <ProjectModal
                 open={isProjectModalOpen}
                 onClose={() => setIsProjectModalOpen(false)}
-                onProjectCreated={handleProjectCreatedInForm}
-                api={api} // explicit pass if needed, or component uses context/import
+                onProjectSaved={handleProjectCreatedInForm}
             />
 
             {/* Volume Selection Dialog */}
