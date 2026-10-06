@@ -503,7 +503,7 @@ class ContainerInstance(db.Model):
             'mac_address': str(mac) if mac else None,
             'created_at': _iso_utc(self.created_at),
             'updated_at': _iso_utc(self.updated_at),
-            'ttl_date': self.ttl_date.isoformat() if self.ttl_date else None,
+            'ttl_date': _iso_utc(self.ttl_date),
             'ansible_log': latest_job.log if latest_job else None
         }
 
