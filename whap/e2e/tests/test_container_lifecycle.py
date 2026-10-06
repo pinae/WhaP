@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import pytest
 from playwright.sync_api import expect
 
-from containers import delete_container, tail
+from containers import broken_user_tools, delete_container, tail
 from pages import LoginPage
 from pages.user_panel import ContainerCard
 from remote import ContainerShell
@@ -195,12 +195,17 @@ def test_login_with_the_password(running, rig):
 def test_the_requested_gpu_and_only_it_is_visible(running, rig, ssh_keypair):
     with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
         smi = sh.run("nvidia-smi --query-gpu=name --format=csv,noheader")
-        nvtop = sh.run("nvtop --version")
     assert smi.exit_status == 0, str(smi)
     gpus = [line.strip() for line in smi.stdout.splitlines() if line.strip()]
     assert len(gpus) == 1, f"expected exactly the requested GPU, nvidia-smi lists {gpus}"
     assert rig.container.gpu_name in gpus[0], f"expected a GPU named like {rig.container.gpu_name!r}, got {gpus[0]!r}"
-    assert nvtop.exit_status == 0, str(nvtop)
+
+
+def test_the_tools_users_need_work(running, rig, ssh_keypair):
+    """nvtop, tmux, and a virtualenv with pip."""
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        broken = broken_user_tools(sh, rig.container.image)
+    assert not broken, broken
 
 
 TORCH_CHECK = """

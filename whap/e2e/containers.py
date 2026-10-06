@@ -1,4 +1,4 @@
-"""Waiting on a container's lifecycle, shared by the container tests."""
+"""Shared by the container tests: waiting on a container's lifecycle, and what every image must offer."""
 import time
 
 from pages.user_panel import ContainerCard
@@ -34,3 +34,24 @@ def delete_container(page, container_id, timeout):
 
 def tail(text, lines=40):
     return "\n".join(text.splitlines()[-lines:])
+
+
+# What users rely on in every image, each as a command that succeeds only if it works.
+USER_TOOLS = {
+    "tmux": "tmux -V",
+    "nvtop": "nvtop --version",
+    # pip proves ensurepip came along: without python3-venv, creating the venv fails right there.
+    "venv": 'd=$(mktemp -d) && python3 -m venv "$d/v" && "$d/v/bin/pip" --version; s=$?; rm -rf "$d"; exit $s',
+}
+
+# Tools an image is known to lack, and why.
+MISSING_TOOLS = {
+    "worker_synced_nvidia_pytorch1906": {"nvtop": "its Ubuntu 18.04 base has no nvtop package"},
+}
+
+
+def broken_user_tools(sh, role):
+    """Run the USER_TOOLS checks ``role`` should pass; return a report of those that fail, or ""."""
+    exempt = MISSING_TOOLS.get(role, {})
+    failed = {tool: sh.run(command) for tool, command in USER_TOOLS.items() if tool not in exempt}
+    return "\n".join(f"--- {tool} ---\n{result}" for tool, result in failed.items() if result.exit_status != 0)

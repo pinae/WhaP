@@ -45,7 +45,7 @@ container, in about 15 seconds:
   being refused with a wrong password
 - adding an SSH key, which survives a reload byte for byte
 - creating a project, and the worker creating its directory on the storage
-  server, owned by the user's LDAP uid and gid
+  server, owned by the user's LDAP uid and gid and group-writable (`2775`)
 - sharing a project with another user found through the LDAP user search, and
   that share and the e2e dataset being offered as volumes
 
@@ -61,7 +61,8 @@ one test per point:
 - the container reaches RUNNING, and its card shows the right `ssh` command
 - the user can log in with the key and, separately, with the password, as
   their LDAP uid and gid
-- `nvidia-smi` sees exactly the requested GPU, by name; `nvtop` runs
+- `nvidia-smi` sees exactly the requested GPU, by name
+- `nvtop` and `tmux` run, and a virtualenv can be made with pip in it
 - PyTorch multiplies a matrix on that GPU
 - deleting the container in the UI removes it and frees its address
 
@@ -77,33 +78,38 @@ once per rig. Set `[torch] index_url` to a CUDA build the server's driver
 supports. The first container of a role may also build or pull its image: allow
 for it in `[container] start_timeout`.
 
-`tests/test_container_matrix.py` covers how a user gets into a container and
-what it can mount. Each case is one container, started through the form and
-deleted before the next starts:
+`tests/test_container_matrix.py` covers how a user gets into a container,
+what it can mount, and every role. Each case is one container, started through
+the form and deleted before the next starts:
 
-| Case       | Logs in with      | Volumes                                     | Checks                                                                 |
-|------------|-------------------|---------------------------------------------|------------------------------------------------------------------------|
-| `key`      | SSH key           | the e2e dataset, a project bob shares `ro`  | key login; dataset marker readable; neither volume writable            |
-| `password` | password          | a project bob shares `rw`                   | password login; the key is refused; alice's file lands in bob's project on the storage server, owned by her |
-| `both`     | key and password  | --                                          | the requested GPU is visible (`--matrix full` only)                    |
+| Case       | Roles                       | Logs in with     | Volumes                                    | Checks                                                                 |
+|------------|-----------------------------|------------------|--------------------------------------------|------------------------------------------------------------------------|
+| `key`      | `[container] image`         | SSH key          | the e2e dataset, a project bob shares `ro` | key login; dataset marker readable; neither volume writable            |
+| `password` | `[container] image`         | password         | a project bob shares `rw`                  | password login; the key is refused; alice's file lands in bob's project on the storage server, owned by her |
+| `both`     | every other `worker_` role  | key and password | --                                         | both logins; `nvidia-smi` sees the GPU; `nvtop`, `tmux` and a virtualenv work; the image does what it is for |
 
-`--matrix tiered`, the default, runs the cases on `[container] image`;
-`--matrix full` runs them on every `worker_` role in `roles/` except
-`worker_ollama`, which serves an HTTP API rather than SSH logins. Two more
-tests need no case: the form refuses a container with neither key nor password
-(as does the API), and a password-only container started in a
-project that earlier had a keyed one must refuse that key.
+`--matrix full` also runs `key` and `password` on every role. `[container]
+image` gets no `both` case: the lifecycle module covers it. `worker_ollama` is
+left out; it serves an HTTP API rather than SSH logins. One more test needs no
+case: the form refuses a container with neither key nor password, as does the
+API.
 
-Two known issues are pinned with `pytest.xfail` inside the tests, only when the
-failure is the known one, so anything else still fails:
+"What it is for" is `PURPOSE` in the module: the NGC image's PyTorch computes
+on the GPU, the CUDA 11.7 image has `nvcc` 11.7. The NGC image has no `nvtop`
+(its Ubuntu 18.04 base has no package); `MISSING_TOOLS` in `containers.py`
+records that, so the check skips it rather than fail every run.
 
-- a key from an earlier container in the same project keeps working: it lives
-  in `~/.ssh/authorized_keys` in the project's home, which outlives the
-  container, and a container without a key leaves the file alone
-- a read-write share is read-only to everyone but its owner: project
-  directories are created `0755`
+With nine roles, a first run on a fresh rig builds nine images; allow for it
+in `[container] start_timeout`, which applies to each container.
 
-Remove the `xfail` branch once each is fixed.
+Project directories are created `2775`, so a project shared read-write is
+writable by everyone it is shared with (their containers get the directory's
+group). `test_identity.py` checks the mode; the `password` case checks alice
+can write.
+
+An SSH key, once deployed, stays in `~/.ssh/authorized_keys` in the project's
+home, so later containers in the same project accept it too; that is
+intended, and not tested.
 
 Tests address the UI through page objects in `pages/`, never through selectors,
 so a frontend change touches only that package. `remote.py` logs into

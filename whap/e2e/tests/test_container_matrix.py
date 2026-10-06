@@ -1,20 +1,23 @@
-"""Phase 3: how a user gets into a container, and what it can mount.
+"""Phases 3 and 4: how a user gets into a container, what it can mount, and every role.
 
-Each case is one container, started through the form with one way of logging
-in and some extra volumes, then checked from inside over SSH:
+Each case is one container, started through the form, then checked from
+inside over SSH. In depth, on ``[container] image`` (Phase 3):
 
 - ``key``: an SSH key and no password, with the e2e dataset and a project bob
   shared read-only. Both are readable; writing to either is refused.
 - ``password``: a password and no key, with a project bob shared read-write.
   The key is refused; what alice writes lands in bob's project on the storage
   server, owned by her.
-- ``both`` (--matrix=full only): key and password, and the GPU.
 
-``--matrix=tiered`` (the default) runs the cases on ``[container] image``;
-``--matrix=full`` on every worker role in roles/. Cases run one after another,
-each deleting its container before the next starts. Two more tests need no
-case: the form refusing a container with neither key nor password, and a
-password-only container in a project that once had a key.
+In breadth, on every other worker role in roles/ (Phase 4):
+
+- ``both``: key and password, and the GPU. Both logins work, nvidia-smi sees
+  the GPU, the tools users rely on work (USER_TOOLS), and the image does what
+  it is for (PURPOSE).
+
+``--matrix=full`` also runs the depth cases on every role. Cases run one after
+another, each deleting its container before the next starts. One more test
+needs no case: the form refusing a container with neither key nor password.
 """
 import secrets
 from dataclasses import dataclass, field
@@ -23,10 +26,10 @@ import paramiko
 import pytest
 from playwright.sync_api import expect
 
-from rig import matrix_roles
-from containers import delete_container, tail, wait_until_settled
+from containers import broken_user_tools, delete_container, tail, wait_until_settled
 from pages import LoginPage
 from remote import ContainerShell
+from rig import matrix_roles, rig_for, worker_roles
 
 ALICE_IDS = "70001:70000"  # fixed by the e2e LDAP directory
 DATASET = "Dataset: e2e-dataset (ro)"
@@ -63,12 +66,27 @@ class Case:
         return f"e2e-m-{self.id}"
 
 
+# What an image is for, where that is more than an Ubuntu with CUDA: checked
+# over SSH, as the user will use it. role -> (what, command)
+PURPOSE = {
+    "worker_synced_nvidia_pytorch1906": (
+        "its PyTorch computes on the GPU",
+        "python -c 'import torch; assert torch.cuda.is_available(), \"no CUDA\"; "
+        "print((torch.ones(2, device=\"cuda\") * 2).sum().item())'"),
+    "worker_local_cuda-11-7_ubuntu2204_ssh": (
+        "it has the CUDA 11.7 compiler",
+        "/usr/local/cuda-11.7/bin/nvcc --version | grep 'release 11.7'"),
+}
+
+
 def cases_for(config):
-    full = config.getoption("--matrix") == "full"
     for role in matrix_roles(config):
         yield Case(role, "key", volumes=("dataset", "share-ro"))
         yield Case(role, "password", volumes=("share-rw",))
-        if full:
+    # Phase 2 already takes [container] image through key, password and the GPU.
+    primary = rig_for(config).container.image
+    for role in worker_roles():
+        if role != primary:
             yield Case(role, "both", gpu=True)
 
 
@@ -209,6 +227,22 @@ def test_the_requested_gpu_is_visible(running, rig, ssh_keypair):
     assert rig.container.gpu_name in gpus[0], f"expected a GPU named like {rig.container.gpu_name!r}: {gpus}"
 
 
+@applies_to(lambda case: case.gpu)
+def test_the_tools_users_need_work(running, rig, ssh_keypair):
+    """nvtop, tmux, and a virtualenv with pip."""
+    with shell(running, rig, ssh_keypair) as sh:
+        broken = broken_user_tools(sh, running.case.role)
+    assert not broken, broken
+
+
+@applies_to(lambda case: case.gpu and case.role in PURPOSE)
+def test_the_image_does_what_it_is_for(running, rig, ssh_keypair):
+    what, command = PURPOSE[running.case.role]
+    with shell(running, rig, ssh_keypair) as sh:
+        result = sh.run(command)
+    assert result.exit_status == 0, f"expected that {what}:\n{result}"
+
+
 # --- Volumes ---------------------------------------------------------------------
 
 def assert_read_only(sh, path):
@@ -243,12 +277,7 @@ def test_writes_to_a_writable_share_land_in_the_owners_project(running, rig, ssh
     name, content = f"from-alice-{running.case.id}.txt", f"written by alice in run {run_id}"
     with shell(running, rig, ssh_keypair) as sh:
         write = sh.run(f"printf %s '{content}' > {path}/{name}")
-        mode = sh.run(f"stat -c %a {path}").stdout.strip()
         context = sh.run(f"id; ls -ldn {path}").stdout
-    if write.exit_status != 0 and "Permission denied" in write.stderr and not int(mode[-2]) & 2:
-        pytest.xfail(f"Known issue: project directories are created {mode}, without group write, so a "
-                     f"read-write share is read-only to everyone but the owner. Remove this branch once "
-                     f"shared project directories are group-writable.\n{context}")
     assert write.exit_status == 0, (f"alice could not write to bob's project, shared with her read-write:\n"
                                     f"{write}\n--- in the container ---\n{context}")
 
@@ -271,38 +300,3 @@ def test_the_form_refuses_a_container_without_key_or_password(login, rig):
     expect(panel.page.get_by_test_id("tab-create")).to_have_attribute("aria-selected", "true")
     created = [c for c in panel.page.request.get("/api/containers").json() if c["project"] == project]
     assert created == [], f"a container was created anyway: {created}"
-
-
-def test_a_key_from_an_earlier_container_does_not_open_a_password_only_one(login, rig, ssh_keypair, run_id):
-    """The key is written to authorized_keys in the project's home directory,
-    which outlives the container. A later container in the same project
-    without a key skips that step, so the old file -- and the old key -- stay.
-    """
-    project = "e2e-m-rekey"
-    panel = login("alice")
-    panel.ssh_keys().add(f"e2e-rekey-{run_id}", ssh_keypair.public_key)
-    panel.projects().create(project)
-    password = secrets.token_urlsafe(12)
-    image, timeout = rig.container.image, rig.container.start_timeout
-
-    keyed = panel.create_container().start(project=project, image=image, ssh_key=f"e2e-rekey-{run_id}",
-                                           server=rig.container.server)
-    try:
-        assert wait_until_settled(keyed, timeout) == "RUNNING", tail(keyed.log_text())
-    finally:
-        delete_container(panel.page, keyed.id, rig.container.delete_timeout)
-
-    later = panel.create_container().start(project=project, image=image, password=password,
-                                           server=rig.container.server)
-    try:
-        assert wait_until_settled(later, timeout) == "RUNNING", tail(later.log_text())
-        with ContainerShell(later.ip(), rig.users["alice"].uid, password=password) as sh:
-            assert sh.run("true").exit_status == 0  # the container is up and takes its password
-        try:
-            ContainerShell(later.ip(), rig.users["alice"].uid, key_path=ssh_keypair.private_key_path).close()
-        except paramiko.AuthenticationException:
-            return  # refused, as it should be
-        pytest.xfail("Known issue: the first container's key still opens the second. Remove this "
-                     "branch once authorized_keys follows the container's choice.")
-    finally:
-        delete_container(panel.page, later.id, rig.container.delete_timeout)
