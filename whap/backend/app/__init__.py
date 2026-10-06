@@ -165,6 +165,10 @@ def create_app(config_class=Config):
             db.session.commit()
             print(f"Successfully renamed {renamed_count} projects.")
 
+        from .e2e_fixtures import e2e_seed_command, e2e_reset_command
+        app.cli.add_command(e2e_seed_command)
+        app.cli.add_command(e2e_reset_command)
+
         return app
 
 

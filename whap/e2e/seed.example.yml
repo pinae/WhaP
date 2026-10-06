@@ -1,0 +1,45 @@
+# Infrastructure for an end-to-end test run. Copy, fill in your test rig's
+# values, and seed it from the storage server:
+#
+#   docker exec -i whap-backend flask e2e-seed - < seed.yml
+#   docker exec -i whap-backend flask e2e-reset - < seed.yml   # before each run
+#
+# Both refuse to run unless the rig was deployed with service_cfg.e2e.enabled.
+
+servers:
+  - hostname: tycho            # as the worker's Ansible inventory knows it
+    ssh_port: 22
+    gpu_count: 1
+
+# A real subnet on the compute server's LAN: containers join it through a
+# macvlan network, on the interface set as ethernet_device in its host_vars.
+# The name must not end in "public" -- that marks public networks, and
+# containers asking for a private address would find none.
+network:
+  name: e2e-lab
+  base_ip: 192.168.50.0
+  prefix_size: 24
+  gateway: 192.168.50.1
+
+# Free addresses on that subnet, one per container that runs at once, plus
+# spares so a leaked one doesn't stall the next run. Locally administered MACs
+# (second hex digit 2, 6, a or e) can't clash with real hardware.
+addresses:
+  - {ip: 192.168.50.201, mac: "02:57:68:61:50:01"}
+  - {ip: 192.168.50.202, mac: "02:57:68:61:50:02"}
+  - {ip: 192.168.50.203, mac: "02:57:68:61:50:03"}
+  - {ip: 192.168.50.204, mac: "02:57:68:61:50:04"}
+
+# Grants the test users the servers above. "images" is "*" for every worker
+# role, or a list of role names; "gpus" is "all" or a list like "0,1";
+# "cpu_limit" is a number of cores, or null for unlimited.
+group:
+  name: e2e
+  members: [ldap:e2e-alice, ldap:e2e-bob]
+  images: "*"
+  gpus: all
+  cpu_limit: null
+
+# Checked, not created: the whap role writes it, because every WhaP container
+# mounts DATASETS read-only.
+dataset: e2e-dataset

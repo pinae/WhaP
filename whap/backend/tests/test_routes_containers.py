@@ -184,8 +184,10 @@ def test_prolong_null_ttl_sets_value_four_weeks_out(client, db, make_local_user,
 
     db.session.refresh(container)
     assert container.ttl_date is not None
-    expected = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(weeks=4)
-    assert abs((container.ttl_date - expected).total_seconds()) < 3600
+    # Postgres returns the aware value; SQLite drops the zone, leaving UTC.
+    ttl = container.ttl_date if container.ttl_date.tzinfo else container.ttl_date.replace(tzinfo=timezone.utc)
+    expected = datetime.now(timezone.utc) + timedelta(weeks=4)
+    assert abs((ttl - expected).total_seconds()) < 3600
 
 
 def test_prolong_fallback_is_naive_aware_safe():

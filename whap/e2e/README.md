@@ -34,6 +34,38 @@ The directory is initialised on first start and kept across restarts.
 Recreating the container (`docker compose up -d --force-recreate e2e-ldap`)
 resets it.
 
+## Seeding the rig
+
+The servers, the container network, its address pool and the test users'
+permissions are rows in WhaP's database. Copy `seed.example.yml`, fill in your
+rig's values, and load it from the storage server:
+
+```bash
+docker exec -i whap-backend flask e2e-seed - < seed.yml
+```
+
+Seeding is idempotent: it creates what is missing and updates the rest to match
+the file. It never takes over rows it does not own, so an address that already
+belongs to another network is reported, not moved.
+
+Before each run, clear what the previous one left behind:
+
+```bash
+docker exec -i whap-backend flask e2e-reset - < seed.yml
+```
+
+This removes the test users' projects (and queues deletion of their
+directories), shares, SSH keys, the groups they made, and their other group
+memberships. It keeps the seeded infrastructure. If the test users still have
+containers it stops and lists them: deleting only the database record would
+orphan a container still running on the compute server, so delete them through
+WhaP, or pass `--force` to drop the records anyway. `--all` removes the seeded
+group, addresses, network and servers as well, except a server other groups
+still use. `--keep-project-dirs` leaves the directories in place.
+
+Both commands refuse to run unless the rig was deployed with the `e2e` switch,
+because reset deletes the listed users' data.
+
 ## Dataset
 
 The `whap` role creates `DATASETS/e2e-dataset/e2e-marker.txt` (content

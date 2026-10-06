@@ -44,6 +44,10 @@ class Config:
     DOCS_DIR = os.environ.get('DOCS_DIR', '/backend/docs')
 
     DOCKER_REGISTRY = os.environ.get("DOCKER_REGISTRY", "")
+
+    # Marks a test rig. `flask e2e-seed` and `flask e2e-reset` refuse to run
+    # without it: reset deletes users' projects and their directories.
+    E2E_FIXTURES_ENABLED = os.environ.get('E2E_FIXTURES_ENABLED', 'False').lower() == 'true'
     CONTAINER_FILE_OWNER = os.environ.get("CONTAINER_FILE_OWNER", "pina")
 
     # --- LDAP Configuration - CRITICAL ---

@@ -45,7 +45,10 @@ def _build_config(tmp_path):
     class TestConfig(Config):
         TESTING = True
         SECRET_KEY = "test-secret-key"
-        SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp_path / 'test.db'}"
+        # SQLite by default. Set WHAP_TEST_DATABASE_URL to run against Postgres,
+        # as production does: SQLite does not enforce foreign keys here, so
+        # some ordering mistakes only show up there.
+        SQLALCHEMY_DATABASE_URI = os.environ.get("WHAP_TEST_DATABASE_URL") or f"sqlite:///{tmp_path / 'test.db'}"
         SQLALCHEMY_TRACK_MODIFICATIONS = False
         # "basic" so the simulated Socket.IO handshake doesn't trip "strong"
         # session protection and drop the logged-in user inside handlers.
