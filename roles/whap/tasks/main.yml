@@ -16,6 +16,11 @@
       gid: 3000
       extra_role_dirs: []
       app_subdir: "WhaP"
+      # Test-rig fixtures for the end-to-end tests (whap/e2e): a disposable
+      # LDAP directory and a small dataset. Never enable in production.
+      e2e:
+        enabled: false
+        dataset: "e2e-dataset"
       db:
         version: "17-alpine"
       redis:
@@ -74,6 +79,30 @@
     source: build
     force_source: true
     push: false
+
+# Every WhaP container mounts DATASETS read-only -- datasets are curated by an
+# admin -- so the e2e dataset is created here, on the host, not by the app.
+- name: "Create the e2e dataset {{ service_cfg.e2e.dataset }}"
+  when: service_cfg.e2e.enabled
+  become: true
+  block:
+    - name: "Create the e2e dataset directory"
+      ansible.builtin.file:
+        path: "{{ service_cfg.projects_dir }}/DATASETS/{{ service_cfg.e2e.dataset }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # The tests read this back through the container mount to prove the
+    # dataset is really there, not just an empty mount point.
+    - name: "Write the e2e dataset marker"
+      ansible.builtin.copy:
+        content: "whap-e2e-dataset\n"
+        dest: "{{ service_cfg.projects_dir }}/DATASETS/{{ service_cfg.e2e.dataset }}/e2e-marker.txt"
+        owner: root
+        group: root
+        mode: "0644"
 
 - ansible.builtin.import_role:
     name: compose_hull

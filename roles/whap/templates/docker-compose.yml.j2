@@ -159,6 +159,22 @@ services:
 {% if service_cfg.separate_traefik_network.use | default(true) %}
       - {{ service_cfg.separate_traefik_network.name }}
 {% endif %}
+{% if service_cfg.e2e.enabled %}
+  e2e-ldap:
+    # Disposable directory for the end-to-end tests: users e2e-alice and
+    # e2e-bob under ou=people,dc=whap,dc=test (see whap/e2e/ldap). Point the
+    # inventory's ldap.uri at ldap://e2e-ldap to use it. No published ports;
+    # only the backend and worker reach it, on the compose network.
+    build:
+      context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/e2e/ldap"
+    container_name: whap-e2e-ldap
+    environment:
+      LDAP_ADMIN_PASSWORD: "{{ service_cfg.e2e.ldap_admin_password | replace('$', '$$') }}"
+      LDAP_BIND_PASSWORD: "{{ ldap.binduser.password | replace('$', '$$') }}"
+      E2E_ALICE_PASSWORD: "{{ service_cfg.e2e.alice_password | replace('$', '$$') }}"
+      E2E_BOB_PASSWORD: "{{ service_cfg.e2e.bob_password | replace('$', '$$') }}"
+    restart: unless-stopped
+{% endif %}
 
 {% if service_cfg.separate_traefik_network.use | default(true) %}
 networks:

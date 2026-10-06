@@ -33,6 +33,14 @@ whap:
   separate_traefik_network:
     use: true
     name: "traefik_default"
+  # Test rigs only: fixtures for the end-to-end tests -- a disposable LDAP
+  # directory and a small dataset (whap/e2e/README.md). Also point the ldap
+  # block below at the test directory.
+  # e2e:
+  #   enabled: true
+  #   ldap_admin_password: "..."
+  #   alice_password: "..."
+  #   bob_password: "..."
 
 ldap:
   domain: "openldap.example.com"
