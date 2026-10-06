@@ -42,6 +42,18 @@ class User:
         return f"ldap:{self.uid}"
 
 
+@dataclass(frozen=True)
+class ContainerSettings:
+    image: str              # role the single-container tests use
+    server: str | None      # hostname to pick; None when the user has only one server
+    gpu: str                # GPU index to request
+    gpu_name: str           # substring nvidia-smi must report, e.g. "2070"; "" to accept any
+    start_timeout: int      # seconds; a fresh rig builds or pulls images on first use
+    delete_timeout: int
+    torch_index_url: str    # pip index for torch; "" for PyPI
+    torch_install_timeout: int
+
+
 class Rig:
     """What rig.toml describes, plus the commands to reach the storage server."""
 
@@ -62,6 +74,17 @@ class Rig:
         except KeyError as e:
             pytest.exit(f"{path} is missing {e}; see rig.example.toml.", returncode=4)
         self.browser = data.get("browser", {})
+        container, torch = data.get("container", {}), data.get("torch", {})
+        self.container = ContainerSettings(
+            image=container.get("image", "worker_local_ubuntu2510_ssh"),
+            server=container.get("server"),
+            gpu=str(container.get("gpu", "0")),
+            gpu_name=container.get("gpu_name", ""),
+            start_timeout=int(container.get("start_timeout", 1800)),
+            delete_timeout=int(container.get("delete_timeout", 600)),
+            torch_index_url=torch.get("index_url", ""),
+            torch_install_timeout=int(torch.get("install_timeout", 1800)),
+        )
         for key in ("alice", "bob"):
             if key not in self.users:
                 pytest.exit(f"{path} needs a [users.{key}] section; see rig.example.toml.", returncode=4)

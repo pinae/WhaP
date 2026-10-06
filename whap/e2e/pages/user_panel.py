@@ -48,6 +48,35 @@ class CreateContainer:
     def __init__(self, page: Page):
         self.page = page
 
+    def _choose(self, select, option):
+        """Pick an option from an MUI select the way a person does: open it, click."""
+        dropdown = self.page.get_by_test_id(select)
+        expect(dropdown).not_to_have_attribute("aria-disabled", "true")  # options still loading
+        dropdown.click()
+        self.page.get_by_test_id(option).click()
+        expect(self.page.get_by_role("listbox")).to_be_hidden()
+
+    def start(self, *, project, image, ssh_key=None, password=None, server=None, gpus=()):
+        """Fill in the form and press Start. Returns the new container's card.
+
+        ``image`` is the role name (worker_...). ``server`` may be omitted when
+        the user has exactly one, which the form pre-selects.
+        """
+        self._choose("container-project-select", f"container-project-option-{project}")
+        self._choose("container-image-select", f"container-image-option-{image}")
+        if ssh_key:
+            self._choose("container-sshkey-select", f"container-sshkey-option-{ssh_key}")
+        if password:
+            self.page.get_by_test_id("container-password").fill(password)
+        if server:
+            self._choose("container-server-select", f"container-server-option-{server}")
+        for gpu in gpus:
+            self.page.get_by_test_id(f"container-gpu-{gpu}").check()
+        self.page.get_by_test_id("container-submit").click()
+        # The panel switches to My Containers, where the new card appears.
+        expect(self.page.get_by_test_id("tab-containers")).to_have_attribute("aria-selected", "true")
+        return ContainerCard.newest(self.page, project=project, image=image)
+
     def mountable_volumes(self):
         """Open "Add Volume" and return what it offers, e.g. ['Shared: x (ro)', ...]."""
         add = self.page.get_by_test_id("container-volume-add")
@@ -115,3 +144,50 @@ class SSHKeys:
         shown = self.page.get_by_test_id("sshkey-list").locator("pre", has_text="ssh-")
         expect(shown).to_be_visible()
         return shown.inner_text().strip()
+
+
+class ContainerCard:
+    """One container on My Containers. Its state is read from the card's
+    data-* attributes rather than from the text a person sees."""
+
+    # Statuses while an Ansible job is in flight (ContainerDetail.js isJobRunning).
+    BUSY = {"PENDING", "STARTING", "PAUSING", "STOPPING", "DELETING"}
+
+    def __init__(self, page: Page, container_id):
+        self.page = page
+        self.id = str(container_id)
+        self.locator = page.locator(f'[data-testid="container-card"][data-container-id="{self.id}"]')
+
+    @classmethod
+    def newest(cls, page, *, project, image):
+        """The card of the most recently created container for project and image."""
+        cards = page.locator(f'[data-testid="container-card"][data-project="{project}"][data-image="{image}"]')
+        expect(cards.first).to_be_visible()
+        ids = [int(card.get_attribute("data-container-id")) for card in cards.all()]
+        return cls(page, max(ids))
+
+    @property
+    def status(self):
+        return self.locator.get_attribute("data-status")
+
+    @property
+    def log(self):
+        return self.locator.get_by_test_id("container-log")
+
+    def live_lines(self):
+        """Log lines that arrived over the socket since the card mounted; 0 if the pane is closed."""
+        return int(self.log.get_attribute("data-live-lines") or 0) if self.log.count() else 0
+
+    def log_text(self):
+        if not self.log.count():
+            self.locator.get_by_test_id("container-logs-toggle").click()
+        return self.log.inner_text()
+
+    def ip(self):
+        return self.locator.get_by_test_id("container-ip").inner_text().strip()
+
+    def ssh_command(self):
+        return self.locator.get_by_test_id("container-ssh-command").inner_text().strip()
+
+    def delete(self):
+        self.locator.get_by_test_id("container-action-delete").click()

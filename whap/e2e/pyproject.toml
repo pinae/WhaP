@@ -8,6 +8,7 @@ dependencies = [
     "pytest-playwright>=0.7",
     "playwright>=1.56",
     "cryptography>=43",
+    "paramiko>=3.4",
 ]
 
 # Tests, not a library: uv manages the environment only.

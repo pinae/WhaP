@@ -45,8 +45,38 @@ container, in about 15 seconds:
 - sharing a project with another user found through the LDAP user search, and
   that share and the e2e dataset being offered as volumes
 
+`tests/test_container_lifecycle.py` takes one container through its life. It
+creates it through the form with an SSH key, a password and one GPU, using the
+role set as `[container] image` in rig.toml, and records how it comes up. Then,
+one test per point:
+
+- the Ansible log reaches the browser as a stream -- Socket.IO frames
+  arriving over time, the log pane visibly growing -- and the end of the job is
+  announced only after its last line
+- reloading the page mid-job replays the log so far, then continues live
+- the container reaches RUNNING, and its card shows the right `ssh` command
+- the user can log in with the key and, separately, with the password, as
+  their LDAP uid and gid
+- `nvidia-smi` sees exactly the requested GPU, by name; `nvtop` runs
+- PyTorch multiplies a matrix on that GPU
+- deleting the container in the UI removes it and frees its address
+
+If the container doesn't reach RUNNING, that test fails with the tail of its
+log and the tests that need a running container are skipped. A known leak is
+pinned with a strict `xfail`: the container password appears in the job log the
+browser is sent. Remove the marker when that is fixed; the test then fails
+until you do.
+
+PyTorch is installed with pip into `~/.e2e-venv` in the container. The project
+is always called `e2e-gpu`, and for local roles its home directory lives on the
+compute server, which reset leaves alone, so the multi-gigabyte download happens
+once per rig. Set `[torch] index_url` to a CUDA build the server's driver
+supports. The first container of a role may also build or pull its image: allow
+for it in `[container] start_timeout`.
+
 Tests address the UI through page objects in `pages/`, never through selectors,
-so a frontend change touches only that package.
+so a frontend change touches only that package. `remote.py` logs into
+containers over SSH, accepting their host keys -- each test container is new.
 
 ## LDAP directory
 

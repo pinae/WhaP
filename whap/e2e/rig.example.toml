@@ -32,6 +32,28 @@ seed_spec = "seed.yml"
 # are created at <projects_dir>/<owner>/<project>.
 projects_dir = "/data/projects"
 
+[container]
+# All optional; defaults shown. The role the single-container tests start.
+# image = "worker_local_ubuntu2510_ssh"
+# The compute server to choose. Leave unset when the test users have only one,
+# which the form then pre-selects.
+# server = "tycho"
+# gpu = "0"
+# A substring nvidia-smi must report for that GPU; empty accepts any GPU.
+gpu_name = "2070"
+# Seconds. The first container of a role on a fresh rig builds or pulls its
+# image, which can take a long time.
+# start_timeout = 1800
+# delete_timeout = 600
+
+[torch]
+# Where pip gets torch inside the container. Empty means PyPI; pick a CUDA
+# build the compute server's driver supports, e.g.
+# index_url = "https://download.pytorch.org/whl/cu126"
+# The first run downloads several GB into a virtualenv in the project's home
+# directory on the compute server, which later runs reuse.
+# install_timeout = 1800
+
 [browser]
 # Optional: a Chromium to use instead of the one `playwright install` fetches.
 # executable = "/usr/bin/chromium"
