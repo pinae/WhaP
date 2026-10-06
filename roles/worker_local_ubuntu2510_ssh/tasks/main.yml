@@ -40,6 +40,7 @@
     tasks_from: ensure_network
 
 - name: Create local password file for Docker Secret
+  no_log: true  # the content is the container password
   ansible.builtin.copy:
     content: "{{ service_cfg.password }}"
     dest: "{{ service_cfg.directory }}/secret_password.txt"

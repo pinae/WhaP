@@ -13,6 +13,42 @@ from .compose_builder import build_compose_file
 from .. import socketio
 
 
+REDACTED = "********"
+
+
+def secret_forms(secret):
+    """The ways ``secret`` can appear in output: as itself, and escaped the way
+    JSON and YAML double-quoted strings escape it (Ansible prints variables as
+    JSON; the playbook quotes the password)."""
+    if not secret:
+        return []
+    escaped = json.dumps(secret)[1:-1]
+    return [secret] if escaped == secret else [escaped, secret]
+
+
+def redact(value, secrets):
+    """Replace every occurrence of each secret in ``value``.
+
+    ``value`` may be a string or any JSON-like structure (an ansible-runner
+    event, a playbook); it is walked rather than serialised, so a secret
+    containing characters JSON would escape is still found. String subclasses
+    keep their type, so a redacted playbook dumps like the original.
+    """
+    forms = [form for secret in secrets for form in secret_forms(secret)]
+    if not forms:
+        return value
+    if isinstance(value, str):
+        redacted = str(value)
+        for form in forms:
+            redacted = redacted.replace(form, REDACTED)
+        return value if redacted == value else type(value)(redacted)
+    if isinstance(value, dict):
+        return {key: redact(item, secrets) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact(item, secrets) for item in value]
+    return value
+
+
 def runner_path(app, *parts):
     """A path under ANSIBLE_RUNNER_DIR, where playbooks and per-job runner data live."""
     return os.path.join(app.config['ANSIBLE_RUNNER_DIR'], *parts)
@@ -86,6 +122,10 @@ def execute_ansible_job(job, event_callback):
     playbook_content = None
     success_status = 'UNKNOWN'
     failure_status = 'ERROR'
+    # Values that must never leave this process: they are redacted from the
+    # stored playbook and log, the returned output, and every streamed event,
+    # all of which reach the browser.
+    secrets = []
 
     # --- Playbook Logic based on Action ---
     if action == 'create':
@@ -122,7 +162,9 @@ def execute_ansible_job(job, event_callback):
         if job.extravars:
             try:
                 extravars_data = json.loads(job.extravars)
-                password = extravars_data.get('container_password', password)
+                password = extravars_data.pop('container_password', password)
+                # Don't keep the password at rest: this is its only use.
+                job.extravars = json.dumps(extravars_data)
                 ttl_date = extravars_data.get('ttl_date')
                 raw_volumes = extravars_data.get('additional_volumes', [])
                 for vol in raw_volumes:
@@ -134,6 +176,7 @@ def execute_ansible_job(job, event_callback):
                         additional_volumes.append(f"{host_path}:{container_path}:{mode}")
             except json.JSONDecodeError:
                 app.logger.warning(f"[Ansible Job {job.id}] Could not decode extravars JSON.")
+        secrets.append(password)
         # --- End loading extravars ---
 
         app.logger.info(f"[Ansible Job {job.id}] Getting GIDs for shared folders: {host_paths_for_gids}")
@@ -304,15 +347,18 @@ def execute_ansible_job(job, event_callback):
         return 'ERROR', job.log, 'failed', {}
 
     # --- Write playbook to file ---
-    job.playbook = json.dumps(playbook_content)
+    job.playbook = json.dumps(redact(playbook_content, secrets))
     try:
         with open(playbook_path, 'w') as f:
             yaml.dump(playbook_content, f, default_flow_style=False)
         app.logger.info(f"[Ansible Job {job.id}] Generated playbook: {playbook_path}")
-        with open(playbook_path, 'r') as f:
-            playbook_file_content = f.read()
-            job.log += "\n--- Playbook Content ---\n" + playbook_file_content + "\n--- End Playbook Content ---\n"
-            db.session.commit()
+        # The log shows the playbook as written, but dumped from a redacted
+        # copy: in the file the password is YAML-escaped, so redacting the
+        # text could miss it.
+        job.log += ("\n--- Playbook Content ---\n"
+                    + yaml.dump(redact(playbook_content, secrets), default_flow_style=False)
+                    + "\n--- End Playbook Content ---\n")
+        db.session.commit()
     except Exception as e:
         app.logger.error(f"[Ansible Job {job.id}] Failed to write playbook: {e}")
         job.status = 'FAILED'
@@ -341,7 +387,7 @@ def execute_ansible_job(job, event_callback):
         'project_dir': app.config.get('ANSIBLE_PROJECT_DIR'),
         'playbook': playbook_path,
         'inventory': inventory_dir,
-        'event_handler': event_callback,
+        'event_handler': lambda event: event_callback(redact(event, secrets)),
         'process_isolation': False,
         'rotate_artifacts': 1,
         'envvars': {
@@ -360,7 +406,7 @@ def execute_ansible_job(job, event_callback):
         stdout_path = os.path.join(runner.config.artifact_dir, 'stdout')
         if os.path.exists(stdout_path):
             with open(stdout_path, 'r') as f_stdout:
-                full_log = f_stdout.read()
+                full_log = redact(f_stdout.read(), secrets)
         job.log += f"\n--- Ansible STDOUT ---\n{full_log}\n--- End STDOUT ---"
     except Exception as log_err:
         app.logger.error(f"[Ansible Job {job.id}] Error reading action logs: {log_err}")

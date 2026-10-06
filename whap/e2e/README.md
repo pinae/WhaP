@@ -62,10 +62,9 @@ one test per point:
 - deleting the container in the UI removes it and frees its address
 
 If the container doesn't reach RUNNING, that test fails with the tail of its
-log and the tests that need a running container are skipped. A known leak is
-pinned with a strict `xfail`: the container password appears in the job log the
-browser is sent. Remove the marker when that is fixed; the test then fails
-until you do.
+log and the tests that need a running container are skipped. Another test
+checks that the container password appears nowhere the browser can see: the
+stored log, the log pane, or any Socket.IO frame.
 
 PyTorch is installed with pip into `~/.e2e-venv` in the container. The project
 is always called `e2e-gpu`, and for local roles its home directory lives on the

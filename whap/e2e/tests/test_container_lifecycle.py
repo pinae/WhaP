@@ -173,13 +173,13 @@ def test_reloading_mid_job_replays_the_log_so_far(provisioned):
     assert "Starting Ansible job for action: create" in provisioned.replayed
 
 
-@pytest.mark.xfail(strict=True, reason="The password reaches the job log twice: in the playbook ansible_service "
-                                       "records, and in the output of compose_hull's 'DEBUG effective service_cfg' "
-                                       "task. The log is streamed and replayed to the browser. Remove this marker "
-                                       "once both are fixed.")
 def test_the_log_does_not_reveal_the_container_password(provisioned):
-    stored = provisioned.api(f"/api/containers/{provisioned.card.id}").json()["ansible_log"] or ""
-    assert provisioned.password not in stored
+    """The password is redacted before the log is stored, streamed or replayed."""
+    run = provisioned
+    streamed = "".join(json.dumps(f.data) for f in run.sockets.frames)
+    stored = run.api(f"/api/containers/{run.card.id}").json()["ansible_log"] or ""
+    for where, text in {"stored log": stored, "log pane": run.log_text, "Socket.IO frames": streamed}.items():
+        assert run.password not in text, f"the container password appears in the {where}"
 
 
 # --- The container ---------------------------------------------------------------

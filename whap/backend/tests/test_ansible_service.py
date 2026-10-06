@@ -129,3 +129,84 @@ def test_what_the_job_process_writes_is_committed(app, db, monkeypatch, tmp_path
     assert job.status == "FAILED"
     assert container.container_name == f"alice-thesis-{container_id}"  # so it can be deleted
     assert container.static_address_id is None                         # released on failure
+
+
+# --- The container password never leaves the job process -------------------------
+
+def test_redact_walks_structures_and_keeps_string_types():
+    from app.services.ansible_service import REDACTED, quoted, redact
+
+    event = {"stdout": "pw=s3cret", "event_data": {"res": {"msg": ["a", "s3cret!"]}}, "counter": 3}
+    assert redact(event, ["s3cret"]) == {
+        "stdout": f"pw={REDACTED}", "event_data": {"res": {"msg": ["a", f"{REDACTED}!"]}}, "counter": 3}
+    assert type(redact(quoted("s3cret"), ["s3cret"])) is quoted
+    assert redact("unchanged", ["", None]) == "unchanged"
+
+
+@pytest.mark.parametrize("secret", ['with "quotes"', "back\\slash", "tab\there", "ünïcode"])
+def test_redact_finds_secrets_json_and_yaml_escape(secret):
+    """Ansible prints variables as JSON, and the playbook double-quotes the
+    password, so either may show the secret escaped rather than verbatim."""
+    import json
+    import yaml
+    from app.services.ansible_service import quoted, redact
+
+    as_json = json.dumps({"password": secret})
+    as_yaml = yaml.dump({"password": quoted(secret)})
+    assert secret not in redact(as_json, [secret]) and json.dumps(secret)[1:-1] not in redact(as_json, [secret])
+    assert json.dumps(secret)[1:-1] not in redact(as_yaml, [secret])
+
+
+PASSWORD = 'pa"ss\\w0rd-e2e'
+
+
+def test_the_password_is_redacted_everywhere_it_could_leave(app, db, monkeypatch, tmp_path, make_local_user,
+                                                            make_project, make_server, make_network,
+                                                            make_static_address):
+    """job.log and job.playbook are sent to the browser, events are streamed to
+    it live, and the extravars row would keep the password at rest."""
+    import json
+    import app.services.ansible_service as service
+    from app.models import AnsibleJob, ContainerInstance
+
+    escaped = json.dumps(PASSWORD)[1:-1]
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "stdout").write_text(f'ok: [tycho] => {{"service_cfg": {{"password": "{escaped}"}}}}\nraw {PASSWORD}\n')
+    seen = {}
+
+    def fake_run(**config):
+        with open(config["playbook"]) as f:
+            seen["playbook_file"] = f.read()
+        config["event_handler"]({"stdout": f"password: {PASSWORD}",
+                                 "event_data": {"res": {"service_cfg": {"password": PASSWORD}}}})
+        return SimpleNamespace(status="successful", rc=0, config=SimpleNamespace(artifact_dir=str(artifacts)))
+
+    monkeypatch.setattr(service.ansible_runner, "run", fake_run)
+    events = []
+    owner = make_local_user(username="alice")
+    server = make_server(hostname="tycho", gpu_count=1)
+    address = make_static_address(make_network(name="lab"), servers=[server])
+    container = ContainerInstance(user_local_user_id=owner.id, project_id=make_project(owner, name="thesis").id,
+                                  compute_server_id=server.id, image_name="worker_local_ubuntu2510_ssh", gpus="0",
+                                  status="STARTING", static_address_id=address.id)
+    db.session.add(container)
+    db.session.flush()
+    job = AnsibleJob(container_instance_id=container.id, server_id=server.id, status="RUNNING", action="create",
+                     extravars=json.dumps({"container_password": PASSWORD, "ttl_date": "2030-01-01"}))
+    db.session.add(job)
+    db.session.commit()
+    job_id = job.id
+
+    _, returned_log, runner_status, _ = execute_ansible_job(db.session.get(AnsibleJob, job_id), events.append)
+    db.session.remove()
+    job = db.session.get(AnsibleJob, job_id)
+
+    assert runner_status == "successful"
+    assert escaped in seen["playbook_file"]          # Ansible itself still gets the password...
+    leaks = {"log": job.log, "returned log": returned_log, "playbook": job.playbook,
+             "extravars": job.extravars, "events": json.dumps(events, ensure_ascii=False)}
+    for where, text in leaks.items():                # ...nothing that leaves the process does
+        assert PASSWORD not in text and escaped not in text, f"the password leaks through the {where}"
+    assert "********" in job.log and len(events) == 1
+    assert json.loads(job.extravars) == {"ttl_date": "2030-01-01"}

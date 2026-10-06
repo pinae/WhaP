@@ -1,4 +1,5 @@
 - name: Copy the docker-compose.yml
+  no_log: true  # build-based images get the container password as a build argument
   become: true
   become_user: "{{ service_cfg.owner }}"
   ansible.builtin.copy:

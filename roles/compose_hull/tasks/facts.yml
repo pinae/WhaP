@@ -7,11 +7,6 @@
                                              service_cfg, recursive=true) }}"
   tags: [ always ]
 
-- name: "DEBUG effective service_cfg after merge"
-  ansible.builtin.debug:
-    var: service_cfg
-  tags: [ always ]
-
 - name: Set compose parameters according to "restarted" tag
   ansible.builtin.set_fact:
     docker_compose_params:
