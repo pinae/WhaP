@@ -514,7 +514,7 @@ function ContainerForm({ onContainerCreated }) {
                                 >
                                     <MenuItem value="" disabled><em>{loadingOptions.images ? "Loading..." : "Select an image"}</em></MenuItem>
                                     {images.map((i) => (
-                                        <MenuItem key={i.id} value={i.id} data-testid={`container-image-option-${i.name}`}>{i.name}</MenuItem>
+                                        <MenuItem key={i.id} value={i.id} data-testid={`container-image-option-${i.id}`}>{i.name}</MenuItem>
                                     ))}
                                 </Select>
                                 {images.length === 0 && !loadingOptions.images && <FormHelperText>No images available.</FormHelperText>}

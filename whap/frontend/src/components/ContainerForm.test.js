@@ -15,9 +15,10 @@ beforeEach(() => {
     const responses = {
         '/api/sshkeys': [{ id: 3, name: 'laptop' }],
         '/api/permissions/my-available-servers': [{ id: 5, hostname: 'tycho', gpu_count: 1, cpu_limit: null }],
+        // As the backend sends them: id is the role, name drops the "worker_" prefix.
         '/api/permissions/my-available-images': [
-            { id: 'worker_local_ubuntu2510_ssh', name: 'worker_local_ubuntu2510_ssh' },
-            { id: 'worker_synced_ubuntu2510_ssh', name: 'worker_synced_ubuntu2510_ssh' },
+            { id: 'worker_local_ubuntu2510_ssh', name: 'local_ubuntu2510_ssh' },
+            { id: 'worker_synced_ubuntu2510_ssh', name: 'synced_ubuntu2510_ssh' },
         ],
         '/api/shared-volumes': [],
         '/api/my-networks': [],
