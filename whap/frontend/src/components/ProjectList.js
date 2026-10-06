@@ -42,26 +42,29 @@ function ProjectList({projects, onAddProject, onEditProject, onDeleteProject, is
                     startIcon={<AddIcon/>}
                     onClick={onAddProject}
                     size="small"
+                    data-testid="project-add"
                 >
                     New Project
                 </Button>
             </Box>
             {error && <Alert severity="error" sx={{mb: 2}}>{error}</Alert>}
             {projects && projects.length > 0 ? (
-                <List dense>
+                <List dense data-testid="project-list">
                     {projects.map((project) => (
-                        <ListItem key={project.id} secondaryAction={
+                        <ListItem key={project.id} data-testid={`project-row-${project.name}`} secondaryAction={
                             <>
                                 <Typography variant="caption" color="textSecondary" sx={{mr: 2}}>
                                     Created: {formatDate(project.created_at)}
                                 </Typography>
                                 <Tooltip title="Edit Project & Shares">
-                                    <IconButton edge="end" aria-label="edit" onClick={() => onEditProject(project)}>
+                                    <IconButton edge="end" aria-label="edit" onClick={() => onEditProject(project)}
+                                                data-testid={`project-edit-${project.name}`}>
                                         <EditIcon/>
                                     </IconButton>
                                 </Tooltip>
                                 <Tooltip title="Delete Project">
-                                    <IconButton edge="end" aria-label="delete" onClick={() => onDeleteProject(project)} sx={{ ml: 1 }}>
+                                    <IconButton edge="end" aria-label="delete" onClick={() => onDeleteProject(project)} sx={{ ml: 1 }}
+                                                data-testid={`project-delete-${project.name}`}>
                                         <DeleteIcon color="error" />
                                     </IconButton>
                                 </Tooltip>

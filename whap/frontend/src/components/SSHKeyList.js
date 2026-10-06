@@ -77,6 +77,7 @@ function SSHKeyList({ sshKeys, onAddKey, refreshKeys, isLoading, error }) {
             startIcon={<AddIcon />}
             onClick={onAddKey}
             size="small"
+            data-testid="sshkey-add"
           >
             Add SSH Key
           </Button>
@@ -84,19 +85,22 @@ function SSHKeyList({ sshKeys, onAddKey, refreshKeys, isLoading, error }) {
          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         {sshKeys && sshKeys.length > 0 ? (
-          <List dense>
+          <List dense data-testid="sshkey-list">
             {sshKeys.map((key) => (
               <React.Fragment key={key.id}>
                 <ListItem
+                  data-testid={`sshkey-row-${key.name}`}
                   secondaryAction={
                     <>
                      <Tooltip title="Show Public Key">
-                         <IconButton edge="end" aria-label="show" onClick={() => toggleExpand(key.id)} size="small" sx={{ mr: 0.5 }}>
+                         <IconButton edge="end" aria-label="show" onClick={() => toggleExpand(key.id)} size="small" sx={{ mr: 0.5 }}
+                                     data-testid={`sshkey-show-${key.name}`}>
                              <VisibilityIcon fontSize="small"/>
                          </IconButton>
                      </Tooltip>
                       <Tooltip title="Delete Key">
-                        <IconButton edge="end" aria-label="delete" onClick={() => openDeleteConfirm(key)} size="small">
+                        <IconButton edge="end" aria-label="delete" onClick={() => openDeleteConfirm(key)} size="small"
+                                    data-testid={`sshkey-delete-${key.name}`}>
                           <DeleteIcon fontSize="small"/>
                         </IconButton>
                       </Tooltip>
@@ -142,7 +146,8 @@ function SSHKeyList({ sshKeys, onAddKey, refreshKeys, isLoading, error }) {
          </DialogContent>
          <DialogActions sx={{ position: 'relative' }}>
            <Button onClick={closeDeleteConfirm} disabled={deleteLoading}>Cancel</Button>
-           <Button onClick={handleDeleteKey} color="error" autoFocus disabled={deleteLoading}>
+           <Button onClick={handleDeleteKey} color="error" autoFocus disabled={deleteLoading}
+                   data-testid="sshkey-delete-confirm">
              Delete
               {deleteLoading && (
                   <CircularProgress size={20} sx={{ position: 'absolute', top: '50%', left: '50%', marginTop: '-10px', marginLeft: '-10px' }}/>

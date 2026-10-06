@@ -113,7 +113,7 @@ function ProjectModal({ open, onClose, onProjectSaved, projectToEdit }) {
                         Enter a name for your project. This will also be used for the directory name on the server.
                         It must start with a letter or number and can contain letters, numbers, underscores, hyphens, and dots.
                     </DialogContentText>
-                    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                    {error && <Alert severity="error" sx={{ mb: 2 }} data-testid="project-modal-error">{error}</Alert>}
                     <TextField
                         autoFocus
                         margin="dense"
@@ -126,6 +126,7 @@ function ProjectModal({ open, onClose, onProjectSaved, projectToEdit }) {
                         onChange={(e) => setProjectName(e.target.value)}
                         disabled={loading}
                         required
+                        slotProps={{ htmlInput: { 'data-testid': 'project-name-input' } }}
                     />
                     {isEditMode && (
                         <Grid item xs={12} sx={{ mt: 2 }}>
@@ -143,7 +144,8 @@ function ProjectModal({ open, onClose, onProjectSaved, projectToEdit }) {
                     <Button onClick={handleClose} disabled={loading} color="secondary">
                         Cancel
                     </Button>
-                    <Button type="submit" disabled={loading} variant="contained" color="primary">
+                    <Button type="submit" disabled={loading} variant="contained" color="primary"
+                            data-testid="project-modal-submit">
                         {isEditMode ? 'Save Changes' : 'Create Project'}
                         {loading && (
                             <CircularProgress

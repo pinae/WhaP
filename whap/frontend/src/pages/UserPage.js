@@ -287,7 +287,8 @@ function UserPage() {
                                 found.</Typography>
                         )}
                         <Button onClick={() => fetchData('containers', false)} sx={{ mt: 2 }}
-                            disabled={currentTabState.loading && currentTabState.data.length > 0}>Refresh
+                            disabled={currentTabState.loading && currentTabState.data.length > 0}
+                            data-testid="containers-refresh">Refresh
                             List</Button>
                     </>
                 );
@@ -327,13 +328,18 @@ function UserPage() {
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                         <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable"
                             scrollButtons="auto">
-                            <Tab label="Statistics" value="statistics" icon={<AssessmentIcon />} iconPosition="start" />
-                            <Tab label="My Containers" value="containers" icon={<ListAltIcon />} iconPosition="start" />
-                            <Tab label="Create Container" value="create" icon={<AddIcon />} iconPosition="start" />
-                            <Tab label="My Projects" value="projects" icon={<FolderIcon />} iconPosition="start" />
+                            <Tab label="Statistics" value="statistics" icon={<AssessmentIcon />} iconPosition="start"
+                                data-testid="tab-statistics" />
+                            <Tab label="My Containers" value="containers" icon={<ListAltIcon />} iconPosition="start"
+                                data-testid="tab-containers" />
+                            <Tab label="Create Container" value="create" icon={<AddIcon />} iconPosition="start"
+                                data-testid="tab-create" />
+                            <Tab label="My Projects" value="projects" icon={<FolderIcon />} iconPosition="start"
+                                data-testid="tab-projects" />
                             <Tab label="My Groups" value="groups" icon={<SupervisedUserCircleIcon />}
-                                iconPosition="start" />
-                            <Tab label="My SSH Keys" value="sshKeys" icon={<KeyIcon />} iconPosition="start" />
+                                iconPosition="start" data-testid="tab-groups" />
+                            <Tab label="My SSH Keys" value="sshKeys" icon={<KeyIcon />} iconPosition="start"
+                                data-testid="tab-sshKeys" />
                         </Tabs>
                     </Box>
                 </Paper>
@@ -373,7 +379,8 @@ function UserPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}>Cancel</Button>
-                    <Button onClick={confirmDialog.onConfirm} color="error" autoFocus>
+                    <Button onClick={confirmDialog.onConfirm} color="error" autoFocus
+                            data-testid="confirm-delete">
                         Delete
                     </Button>
                 </DialogActions>

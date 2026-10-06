@@ -239,8 +239,15 @@ function ContainerDetails({container, onUpdate, onDelete}) {
         return container.ansible_log || "No logs available.";
     };
 
+    // The data-* attributes expose state to end-to-end tests, which locate a
+    // card by project and image and wait on data-status rather than on text.
     return (
-        <Paper elevation={2} sx={{p: 2, mb: 2}}>
+        <Paper elevation={2} sx={{p: 2, mb: 2}}
+               data-testid="container-card"
+               data-container-id={container.id}
+               data-project={container.project}
+               data-image={container.image}
+               data-status={container.status}>
             <Grid container spacing={2} alignItems="center">
                 <Grid item xs={12} sm={6} md={3}>
                     <Typography variant="h6" component="div">
@@ -256,6 +263,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                         color={statusColors[container.status] || 'default'}
                         size="small"
                         sx={{mr: 1}}
+                        data-testid="container-status"
                     />
                     {isJobRunning && <CircularProgress size={16} sx={{verticalAlign: 'middle'}}/>}
                     <Typography variant="body2" color="textSecondary" sx={{mt: 0.5}}>
@@ -271,13 +279,13 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                     {container.status === 'RUNNING' && container.ip_address ? (
                         <Box>
                             <Typography variant="body2" component="span">
-                                IP: {container.ip_address} | SSH:&nbsp;
+                                IP: <span data-testid="container-ip">{container.ip_address}</span> | SSH:&nbsp;
                             </Typography>
                             <Tooltip title={constructedSshCommand || 'SSH command not available'}>
                                 <span>
                                     <Link component="button" variant="body2" onClick={handleCopySSH}
                                           disabled={!constructedSshCommand}>
-                                        <code>{constructedSshCommand}</code>
+                                        <code data-testid="container-ssh-command">{constructedSshCommand}</code>
                                         {constructedSshCommand &&
                                             <ContentCopyIcon sx={{fontSize: 14, ml: 0.5, verticalAlign: 'middle'}}/>}
                                     </Link>
@@ -299,6 +307,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                                 <IconButton
                                     size="small"
                                     onClick={() => handleAction('prolong')}
+                                    data-testid="container-action-prolong"
                                     disabled={!canProlong || isAnyActionInProgress}
                                     color="primary"
                                 >
@@ -311,6 +320,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                                 <IconButton
                                     size="small"
                                     onClick={() => handleAction('resume')}
+                                    data-testid="container-action-resume"
                                     disabled={!canResume || isAnyActionInProgress}
                                     color="success"
                                 >
@@ -323,6 +333,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                                 <IconButton
                                     size="small"
                                     onClick={() => handleAction('pause')}
+                                    data-testid="container-action-pause"
                                     disabled={!canPause || isAnyActionInProgress}
                                     color="warning"
                                 >
@@ -335,6 +346,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                             <IconButton
                                 size="small"
                                 onClick={() => handleAction('stop')}
+                                data-testid="container-action-stop"
                                 disabled={!canStop || isAnyActionInProgress}
                                 color="error"
                             >
@@ -347,6 +359,7 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                                 <IconButton
                                     size="small"
                                     onClick={() => handleAction('delete')}
+                                    data-testid="container-action-delete"
                                     disabled={!canDelete || isAnyActionInProgress}
                                     color="secondary"
                                 >
@@ -359,7 +372,8 @@ function ContainerDetails({container, onUpdate, onDelete}) {
 
                 {actionError && (
                     <Grid item xs={12}>
-                        <Alert severity="error" onClose={() => setActionError('')}>{actionError}</Alert>
+                        <Alert severity="error" onClose={() => setActionError('')}
+                               data-testid="container-action-error">{actionError}</Alert>
                     </Grid>
                 )}
 
@@ -369,6 +383,8 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                             size="small"
                             onClick={() => setExpanded(!expanded)}
                             startIcon={expanded ? <ExpandLessIcon/> : <ExpandMoreIcon/>}
+                            aria-expanded={expanded}
+                            data-testid="container-logs-toggle"
                         >
                             Show Logs
                         </Button>
@@ -391,6 +407,9 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                                     fontFamily: 'monospace',
                                     fontSize: '0.8rem'
                                 }}
+                                    data-testid="container-log"
+                                    data-log-source={liveLogs.length > 0 ? 'live' : 'stored'}
+                                    data-live-lines={liveLogs.length}
                                 >
                                     {renderLogContent()}
                                     {isJobRunning && <span className="blinking-cursor">|</span>}

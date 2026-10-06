@@ -101,18 +101,21 @@ function UserSearchAndManage({
                 label={"Search for " + searchTypes.join(' or ') + " to add..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                    endAdornment: loading ? <CircularProgress size={20}/> : null,
+                slotProps={{
+                    input: { endAdornment: loading ? <CircularProgress size={20}/> : null },
+                    htmlInput: { 'data-testid': 'member-search-input' },
                 }}
             />
             {searchResults.length > 0 && (
                 <Paper sx={{maxHeight: 150, overflow: 'auto', mt: 1}}>
-                    <List dense>
+                    <List dense data-testid="member-search-results">
                         {searchResults.map(user => (
                             <ListItem
                                 key={user.id}
+                                data-testid={`member-search-result-${user.id}`}
                                 secondaryAction={
-                                    <IconButton edge="end" aria-label="add" onClick={() => handleAddMember(user)}>
+                                    <IconButton edge="end" aria-label="add" onClick={() => handleAddMember(user)}
+                                                data-testid={`member-add-${user.id}`}>
                                         <AddCircleOutlineIcon color="primary"/>
                                     </IconButton>
                                 }
@@ -133,9 +136,11 @@ function UserSearchAndManage({
                         {currentMembers.map(member => (
                             <ListItem
                                 key={member.user_uid}
+                                data-testid={`member-row-${member.user_uid}`}
                                 secondaryAction={
                                     <IconButton edge="end" aria-label="remove"
-                                                onClick={() => handleRemoveMember(member.user_uid)}>
+                                                onClick={() => handleRemoveMember(member.user_uid)}
+                                                data-testid={`member-remove-${member.user_uid}`}>
                                         <RemoveCircleOutlineIcon color="error"/>
                                     </IconButton>
                                 }
@@ -146,7 +151,8 @@ function UserSearchAndManage({
                                         <FormControlLabel
                                             control={<Switch checked={member.is_group_admin}
                                                              onChange={() => handleAdminToggle(member.user_uid)}
-                                                             size="small"/>}
+                                                             size="small"
+                                                             slotProps={{ input: { 'data-testid': `member-toggle-${member.user_uid}` } }}/>}
                                             label={<Typography variant="caption">{adminToggleLabel}</Typography>}
                                         />
                                     }

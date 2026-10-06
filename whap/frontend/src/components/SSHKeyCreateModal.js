@@ -54,7 +54,7 @@ function SSHKeyCreateModal({ open, onClose, onKeyCreated }) {
           <DialogContentText sx={{ mb: 2 }}>
             Give your key a recognizable name and paste the entire public key string (usually starts with ssh-rsa, ssh-ed25519, etc. and ends with user@host).
           </DialogContentText>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2 }} data-testid="sshkey-modal-error">{error}</Alert>}
           <TextField
             autoFocus
             margin="dense"
@@ -68,6 +68,7 @@ function SSHKeyCreateModal({ open, onClose, onKeyCreated }) {
             disabled={loading}
             required
             sx={{ mb: 2 }}
+            slotProps={{ htmlInput: { 'data-testid': 'sshkey-name-input' } }}
           />
            <TextField
             margin="dense"
@@ -83,13 +84,15 @@ function SSHKeyCreateModal({ open, onClose, onKeyCreated }) {
             disabled={loading}
             required
             placeholder="Paste your public key here (e.g., ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... user@host)"
+            slotProps={{ htmlInput: { 'data-testid': 'sshkey-public-key-input' } }}
           />
         </DialogContent>
         <DialogActions sx={{ position: 'relative', pr: 3, pb: 2 }}>
           <Button onClick={handleClose} disabled={loading} color="secondary">
             Cancel
           </Button>
-          <Button type="submit" disabled={loading} variant="contained" color="primary">
+          <Button type="submit" disabled={loading} variant="contained" color="primary"
+                  data-testid="sshkey-modal-submit">
             Save Key
             {loading && (
               <CircularProgress

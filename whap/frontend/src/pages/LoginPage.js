@@ -48,7 +48,7 @@ function LoginPage() {
                     Sign in
                 </Typography>
                 <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
-                    {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{error}</Alert>}
+                    {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }} data-testid="login-error">{error}</Alert>}
                     <TextField
                         margin="normal"
                         required
@@ -61,6 +61,7 @@ function LoginPage() {
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         disabled={loading}
+                        slotProps={{ htmlInput: { 'data-testid': 'login-username' } }}
                     />
                     <TextField
                         margin="normal"
@@ -74,6 +75,7 @@ function LoginPage() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         disabled={loading}
+                        slotProps={{ htmlInput: { 'data-testid': 'login-password' } }}
                     />
                     {/* Add Checkbox for 'Remember me'? Requires backend support */}
                     <Box sx={{ position: 'relative', mt: 3, mb: 2 }}>
@@ -82,6 +84,7 @@ function LoginPage() {
                             fullWidth
                             variant="contained"
                             disabled={loading || !username || !password}
+                            data-testid="login-submit"
                         >
                             Sign In
                         </Button>

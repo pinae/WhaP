@@ -314,3 +314,26 @@ uv run pytest --cov=app --cov-report=html
 
 The measured package, branch coverage, and omitted paths are configured in the `[tool.coverage.*]` 
 sections of `pyproject.toml`.
+
+### Frontend
+
+The frontend tests use Jest and React Testing Library. Run them from `whap/frontend/`:
+
+```bash
+CI=true yarn test --watchAll=false
+```
+
+Without `CI=true`, `yarn test` starts in interactive watch mode.
+
+The `moduleNameMapper` entries in `package.json` are needed because the Jest bundled with
+`react-scripts` ignores the `exports` field, and `react-router-dom` 7 and `axios` 1 publish
+their CommonJS builds only there.
+
+### Test ids for end-to-end tests
+
+Elements a browser test interacts with carry a `data-testid`, so tests don't depend on
+labels or layout. Ids are `area-element` (`login-username`, `container-submit`); per-item
+ids end in the name a test knows (`project-row-thesis`, `container-image-option-worker_local_ubuntu2510_ssh`).
+On text fields the id sits on the `<input>` itself, via `slotProps.htmlInput`. Container
+cards expose their state as attributes instead (`data-status`, `data-project`, `data-image`),
+and the log pane reports `data-log-source` (`live` or `stored`) and `data-live-lines`.

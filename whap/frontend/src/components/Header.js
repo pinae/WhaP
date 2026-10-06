@@ -69,7 +69,7 @@ function Header({ title, onMenuClick }) {
                     gap: 1
                 }}>
                     <Typography variant="body1" sx={{ mr: 2, display: { xs: 'none', md: 'block' } }}>
-                        Welcome, <strong>{username}</strong>!
+                        Welcome, <strong data-testid="header-username">{username}</strong>!
                     </Typography>
 
                     {/* Docs Button - Hidden if already on /docs */}
@@ -115,7 +115,8 @@ function Header({ title, onMenuClick }) {
                     )}
 
                     <Tooltip title="Logout">
-                        <IconButton onClick={logout} color="default" size="small" sx={{ ml: 1 }}>
+                        <IconButton onClick={logout} color="default" size="small" sx={{ ml: 1 }}
+                                    aria-label="Logout" data-testid="header-logout">
                             <LogoutIcon />
                         </IconButton>
                     </Tooltip>

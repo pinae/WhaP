@@ -442,7 +442,8 @@ function ContainerForm({ onContainerCreated }) {
         <>
             <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
                 <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>Create New Container</Typography>
-                {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
+                {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}
+                                 data-testid="container-form-error">{error}</Alert>}
 
                 <Box component="form" onSubmit={handleSubmit} noValidate>
                     <Stack spacing={3}>
@@ -463,9 +464,12 @@ function ContainerForm({ onContainerCreated }) {
                                         value={formData.projectId} label="Project"
                                         onChange={handleInputChange}
                                         disabled={loadingSubmit || loadingOptions.projects}
+                                        SelectDisplayProps={{ 'data-testid': 'container-project-select' }}
                                     >
                                         <MenuItem value="" disabled><em>{loadingOptions.projects ? "Loading..." : "Select a project"}</em></MenuItem>
-                                        {projects.map((p) => (<MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>))}
+                                        {projects.map((p) => (
+                                            <MenuItem key={p.id} value={p.id} data-testid={`container-project-option-${p.name}`}>{p.name}</MenuItem>
+                                        ))}
                                     </Select>
                                     {projects.length === 0 && !loadingOptions.projects &&
                                         <FormHelperText>No projects found. Use '+' to create.</FormHelperText>}
@@ -475,6 +479,7 @@ function ContainerForm({ onContainerCreated }) {
                                     onClick={() => setIsProjectModalOpen(true)}
                                     color="primary"
                                     disabled={loadingSubmit}
+                                    data-testid="container-project-add"
                                     sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
                                 >
                                     <AddIcon />
@@ -497,9 +502,12 @@ function ContainerForm({ onContainerCreated }) {
                                     value={formData.imageId} label="Docker Image"
                                     onChange={handleInputChange}
                                     disabled={loadingSubmit || loadingOptions.images}
+                                    SelectDisplayProps={{ 'data-testid': 'container-image-select' }}
                                 >
                                     <MenuItem value="" disabled><em>{loadingOptions.images ? "Loading..." : "Select an image"}</em></MenuItem>
-                                    {images.map((i) => (<MenuItem key={i.id} value={i.id}>{i.name}</MenuItem>))}
+                                    {images.map((i) => (
+                                        <MenuItem key={i.id} value={i.id} data-testid={`container-image-option-${i.name}`}>{i.name}</MenuItem>
+                                    ))}
                                 </Select>
                                 {images.length === 0 && !loadingOptions.images && <FormHelperText>No images available.</FormHelperText>}
                             </FormControl>
@@ -524,6 +532,7 @@ function ContainerForm({ onContainerCreated }) {
                                         fullWidth
                                         error={!formData.password && !formData.sshKeyId && !!error}
                                         sx={{ minWidth: '20em' }}
+                                        slotProps={{ htmlInput: { 'data-testid': 'container-password' } }}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={6}>
@@ -537,10 +546,11 @@ function ContainerForm({ onContainerCreated }) {
                                             label="SSH Key (Optional)"
                                             onChange={handleInputChange}
                                             disabled={loadingSubmit || loadingOptions.keys}
+                                            SelectDisplayProps={{ 'data-testid': 'container-sshkey-select' }}
                                         >
-                                            <MenuItem value=""><em>None Selected</em></MenuItem>
+                                            <MenuItem value="" data-testid="container-sshkey-option-none"><em>None Selected</em></MenuItem>
                                             {Array.isArray(sshKeys) && sshKeys.map((k) => (
-                                                <MenuItem key={k.id} value={k.id}>{k.name}</MenuItem>
+                                                <MenuItem key={k.id} value={k.id} data-testid={`container-sshkey-option-${k.name}`}>{k.name}</MenuItem>
                                             ))}
                                         </Select>
                                         {loadingOptions.keys && <FormHelperText>Loading keys...</FormHelperText>}
@@ -563,6 +573,7 @@ function ContainerForm({ onContainerCreated }) {
                                     startIcon={<AddIcon />}
                                     onClick={() => setIsVolumeDialogOpen(true)}
                                     disabled={loadingSubmit || loadingOptions.shares}
+                                    data-testid="container-volume-add"
                                 >
                                     Add Volume
                                 </Button>
@@ -577,6 +588,7 @@ function ContainerForm({ onContainerCreated }) {
                                     {mountedShares.map(share => (
                                         <ListItem
                                             key={share.host_path}
+                                            data-testid={`mounted-volume-${share.host_path}`}
                                             sx={{
                                                 border: share.use_local_ssd ? '1px solid #1976d2' : '1px solid rgba(0, 0, 0, 0.12)',
                                                 borderRadius: 1,
@@ -584,7 +596,9 @@ function ContainerForm({ onContainerCreated }) {
                                                 p: 1
                                             }}
                                             secondaryAction={
-                                                <IconButton edge="end" onClick={() => handleRemoveShare(share.host_path)}>
+                                                <IconButton edge="end" onClick={() => handleRemoveShare(share.host_path)}
+                                                            aria-label="Remove volume"
+                                                            data-testid={`mounted-volume-remove-${share.host_path}`}>
                                                     <DeleteIcon />
                                                 </IconButton>
                                             }
@@ -623,6 +637,7 @@ function ContainerForm({ onContainerCreated }) {
                                                     onChange={(e) => handleSharePathChange(share.host_path, e.target.value)}
                                                     fullWidth
                                                     variant="outlined"
+                                                    slotProps={{ htmlInput: { 'data-testid': `mounted-volume-path-${share.host_path}` } }}
                                                 />
                                             </Box>
                                         </ListItem>
@@ -646,9 +661,12 @@ function ContainerForm({ onContainerCreated }) {
                                     value={formData.serverId} label="Compute Server"
                                     onChange={handleInputChange}
                                     disabled={loadingSubmit || loadingOptions.servers}
+                                    SelectDisplayProps={{ 'data-testid': 'container-server-select' }}
                                 >
                                     <MenuItem value="" disabled><em>{loadingOptions.servers ? "Loading..." : "Select a server"}</em></MenuItem>
-                                    {servers.map((s) => (<MenuItem key={s.id} value={s.id}>{s.hostname}</MenuItem>))}
+                                    {servers.map((s) => (
+                                        <MenuItem key={s.id} value={s.id} data-testid={`container-server-option-${s.hostname}`}>{s.hostname}</MenuItem>
+                                    ))}
                                 </Select>
                                 {servers.length === 0 && !loadingOptions.servers && <FormHelperText>No servers available.</FormHelperText>}
                             </FormControl>
@@ -662,6 +680,7 @@ function ContainerForm({ onContainerCreated }) {
                                                 checked={requestPublicIp}
                                                 onChange={(e) => setRequestPublicIp(e.target.checked)}
                                                 disabled={publicIpConfig.isDisabled || loadingSubmit}
+                                                slotProps={{ input: { 'data-testid': 'container-public-ip' } }}
                                             />
                                         }
                                         label="Request Public IP"
@@ -692,6 +711,7 @@ function ContainerForm({ onContainerCreated }) {
                                     disabled={loadingSubmit}
                                     fullWidth
                                     helperText='Use "unlimited" or a number (e.g. 0.5)'
+                                    slotProps={{ htmlInput: { 'data-testid': 'container-cpu-limit' } }}
                                 />
                                 <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
                                     {["unlimited", "0.5", "1", "4"].map(limit => (
@@ -720,6 +740,7 @@ function ContainerForm({ onContainerCreated }) {
                                                             onChange={handleGpuChange}
                                                             value={gpuNum}
                                                             disabled={loadingSubmit}
+                                                            slotProps={{ input: { 'data-testid': `container-gpu-${gpuNum}` } }}
                                                         />
                                                     }
                                                     label={`GPU ${gpuNum}`}
@@ -757,16 +778,20 @@ function ContainerForm({ onContainerCreated }) {
                                         inputLabel: { shrink: true },
                                         htmlInput: {
                                             min: ttlConfig.minDate,
-                                            max: ttlConfig.maxDate
+                                            max: ttlConfig.maxDate,
+                                            'data-testid': 'container-ttl-date'
                                         }
                                     }}
                                     required={ttlConfig.isRequired}
                                     disabled={loadingSubmit}
                                 />
                                 <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-                                    <Chip label="3 Months" onClick={() => handleTtlQuickSelect(3)} clickable size="small" color="primary" variant="outlined" />
-                                    <Chip label="6 Months" onClick={() => handleTtlQuickSelect(6)} clickable size="small" color="primary" variant="outlined" />
-                                    <Chip label="1 Year" onClick={() => handleTtlQuickSelect(12)} clickable size="small" color="primary" variant="outlined" />
+                                    <Chip label="3 Months" onClick={() => handleTtlQuickSelect(3)} clickable size="small" color="primary" variant="outlined"
+                                          data-testid="container-ttl-3m" />
+                                    <Chip label="6 Months" onClick={() => handleTtlQuickSelect(6)} clickable size="small" color="primary" variant="outlined"
+                                          data-testid="container-ttl-6m" />
+                                    <Chip label="1 Year" onClick={() => handleTtlQuickSelect(12)} clickable size="small" color="primary" variant="outlined"
+                                          data-testid="container-ttl-12m" />
                                 </Stack>
                             </Paper>
                         )}
@@ -779,6 +804,7 @@ function ContainerForm({ onContainerCreated }) {
                                 size="large"
                                 disabled={loadingSubmit}
                                 sx={{ minWidth: '150px' }}
+                                data-testid="container-submit"
                             >
                                 {loadingSubmit ? "Starting..." : "Start Container"}
                             </Button>
@@ -807,10 +833,11 @@ function ContainerForm({ onContainerCreated }) {
                             value={shareToMount}
                             label="Available Shared Folders & Projects"
                             onChange={(e) => setShareToMount(e.target.value)}
+                            SelectDisplayProps={{ 'data-testid': 'volume-select' }}
                         >
                             <MenuItem value="" disabled><em>Select a folder to mount</em></MenuItem>
                             {filteredAvailableShares.filter(s => !mountedShares.some(ms => ms.host_path === s.host_path)).map(s => (
-                                <MenuItem key={s.host_path} value={s.host_path}>
+                                <MenuItem key={s.host_path} value={s.host_path} data-testid={`volume-option-${s.host_path}`}>
                                     {s.name} ({s.is_writable ? 'rw' : 'ro'})
                                 </MenuItem>
                             ))}
@@ -826,6 +853,7 @@ function ContainerForm({ onContainerCreated }) {
                         }}
                         disabled={!shareToMount}
                         variant="contained"
+                        data-testid="volume-add-confirm"
                     >
                         Add Volume
                     </Button>
