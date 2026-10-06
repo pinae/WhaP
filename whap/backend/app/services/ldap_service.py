@@ -2,18 +2,73 @@ import ldap
 import ldap.filter
 from flask import current_app
 
+from ..config import LDAP_TLS_OPTIONS
+
+
+class LdapConfigError(Exception):
+    """Raised before connecting when the LDAP settings are unusable."""
+
+
+def _connect():
+    """Open a connection configured from the app config.
+
+    TLS options are set on the connection, never with the module-level
+    ``ldap.set_option``: that is process-global, so one request's setting
+    would leak into every later connection in the same worker. Per-connection
+    TLS settings only take effect once a new TLS context is created, which is
+    why ``OPT_X_TLS_NEWCTX`` must come last.
+
+    See ``Config.LDAP_TLS_OPTION`` for what each value means. Note that
+    ``OPT_X_TLS_NEVER`` is 0, so it must never be tested for truthiness.
+    """
+    tls_option = (current_app.config.get('LDAP_TLS_OPTION') or 'DEMAND').upper()
+    if tls_option not in LDAP_TLS_OPTIONS:
+        raise LdapConfigError(
+            f"LDAP_TLS_OPTION must be one of {', '.join(LDAP_TLS_OPTIONS)}, got '{tls_option}'.")
+
+    conn = ldap.initialize(current_app.config.get('LDAP_SERVER_URI'))
+    conn.protocol_version = ldap.VERSION3
+    conn.set_option(ldap.OPT_REFERRALS, 0)  # Often needed for AD/complex setups
+    conn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, getattr(ldap, f'OPT_X_TLS_{tls_option}'))
+    ca_cert_file = current_app.config.get('LDAP_CA_CERT_FILE')
+    if ca_cert_file:
+        conn.set_option(ldap.OPT_X_TLS_CACERTFILE, ca_cert_file)
+    conn.set_option(ldap.OPT_X_TLS_NEWCTX, 0)
+    return conn
+
+
+def _service_bind():
+    """Connect and bind as the service account."""
+    conn = _connect()
+    conn.simple_bind_s(current_app.config.get('LDAP_BIND_USER'), current_app.config.get('LDAP_BIND_PASSWORD'))
+    return conn
+
+
+def _unbind_quietly(conn):
+    if conn:
+        try:
+            conn.unbind_s()
+        except ldap.LDAPError:
+            pass
+
+
+def _first(entry, attribute):
+    """First value of an attribute as text, '' if absent. LDAP returns lists of bytes."""
+    values = entry.get(attribute)
+    return values[0].decode('utf-8') if values else ''
+
+
+def _service_config_complete():
+    return all(current_app.config.get(key) for key in
+               ('LDAP_SERVER_URI', 'LDAP_USER_BASE_DN', 'LDAP_BIND_USER', 'LDAP_BIND_PASSWORD'))
+
 
 def authenticate_user(username, password):
     """
     Authenticates a user against LDAP. If successful, searches for their uidNumber, gidNumber and mail.
     Returns a dictionary of user details {'uid':..., 'uidNumber':..., 'gidNumber':..., 'mail':...} on success, None otherwise.
     """
-    uri = current_app.config.get('LDAP_SERVER_URI')
-    base_dn = current_app.config.get('LDAP_USER_BASE_DN')
-    bind_user_dn = current_app.config.get('LDAP_BIND_USER')
-    bind_user_password = current_app.config.get('LDAP_BIND_PASSWORD')
-
-    if not uri or not base_dn:
+    if not current_app.config.get('LDAP_SERVER_URI') or not current_app.config.get('LDAP_USER_BASE_DN'):
         current_app.logger.error("LDAP_SERVER_URI or LDAP_USER_BASE_DN not configured.")
         return None
     if not username or not password:  # Don't attempt bind with empty credentials
@@ -21,35 +76,19 @@ def authenticate_user(username, password):
         return None
 
     # A service account is required to find the user's full DN and details.
-    if not bind_user_dn or not bind_user_password:
+    if not current_app.config.get('LDAP_BIND_USER') or not current_app.config.get('LDAP_BIND_PASSWORD'):
         current_app.logger.error("LDAP_BIND_USER and LDAP_BIND_PASSWORD must be configured for user search.")
         return None
 
+    base_dn = current_app.config.get('LDAP_USER_BASE_DN')
     conn = None
     try:
-        # Use LDAPS, require cert if possible for security
-        # Adjust TLS options based on server setup (ALLOW, DEMAND, NEVER)
-        tls_option = current_app.config.get('LDAP_TLS_OPTION', 'DEMAND').upper()
-        if tls_option == 'DEMAND':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND)
-        elif tls_option == 'ALLOW':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_ALLOW)
-
-        # Ensure cert file path is set if using DEMAND/ALLOW with self-signed certs etc.
-        # ldap.set_option(ldap.OPT_X_TLS_CACERTFILE, current_app.config.get('LDAP_CA_CERT_FILE'))
-
-        conn = ldap.initialize(uri)
-        conn.protocol_version = ldap.VERSION3
-        conn.set_option(ldap.OPT_REFERRALS, 0)  # Often needed for AD/complex setups
-
         # 1. Bind with the service account to search for the user
-        conn.simple_bind_s(bind_user_dn, bind_user_password)
-        current_app.logger.debug(f"LDAP search: Bound with service account '{bind_user_dn}'.")
+        conn = _service_bind()
 
         search_filter = ldap.filter.filter_format('(uid=%s)', [username])
-        attributes_to_fetch = ['dn', 'uid', 'uidNumber', 'gidNumber', 'mail']
-
-        results = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, search_filter, attributes_to_fetch)
+        results = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, search_filter,
+                                ['uid', 'uidNumber', 'gidNumber', 'mail'])
 
         if len(results) != 1:
             current_app.logger.warning(
@@ -58,23 +97,18 @@ def authenticate_user(username, password):
 
         user_dn_found, entry = results[0]
 
-        # 2. Unbind service account and re-bind as the user to verify their password
-        # A new connection object is cleaner than unbinding and rebinding the same one.
-        conn.unbind_s()
-        conn = ldap.initialize(uri)
-        conn.protocol_version = ldap.VERSION3
-        conn.set_option(ldap.OPT_REFERRALS, 0)
-
+        # 2. Verify the password by binding as the user, on a fresh connection.
+        _unbind_quietly(conn)
+        conn = _connect()
         conn.simple_bind_s(user_dn_found, password)
         current_app.logger.info(f"LDAP password verification successful for {user_dn_found}")
 
-        # 3. If we are here, password is correct. Extract details from the entry we found earlier.
-        # LDAP attributes are returned as lists of byte strings.
+        # 3. Password is correct. Extract details from the entry found earlier.
         user_info = {
-            'uid': entry.get('uid', [b''])[0].decode('utf-8'),
-            'uidNumber': entry.get('uidNumber', [b''])[0].decode('utf-8'),
-            'gidNumber': entry.get('gidNumber', [b''])[0].decode('utf-8'),
-            'mail': entry.get('mail', [b''])[0].decode('utf-8') if entry.get('mail') else None
+            'uid': _first(entry, 'uid'),
+            'uidNumber': _first(entry, 'uidNumber'),
+            'gidNumber': _first(entry, 'gidNumber'),
+            'mail': _first(entry, 'mail') or None,
         }
 
         if not all([user_info['uid'], user_info['uidNumber'], user_info['gidNumber']]):
@@ -84,6 +118,9 @@ def authenticate_user(username, password):
 
         return user_info
 
+    except LdapConfigError as e:
+        current_app.logger.error(str(e))
+        return None
     except ldap.INVALID_CREDENTIALS:
         current_app.logger.warning(f"LDAP invalid credentials for user '{username}' or service account.")
         return None
@@ -91,11 +128,7 @@ def authenticate_user(username, password):
         current_app.logger.error(f"LDAP Error during auth/search process for '{username}': {e}")
         return None
     finally:
-        if conn:
-            try:
-                conn.unbind_s()
-            except ldap.LDAPError:
-                pass
+        _unbind_quietly(conn)
 
 
 def get_ldap_user_details(username):
@@ -104,40 +137,24 @@ def get_ldap_user_details(username):
     This is used by the user_loader to refresh user info from the session ID.
     Returns a dictionary with uid, uidNumber, gidNumber, or None.
     """
-    uri = current_app.config.get('LDAP_SERVER_URI')
-    base_dn = current_app.config.get('LDAP_USER_BASE_DN')
-    bind_user_dn = current_app.config.get('LDAP_BIND_USER')
-    bind_user_password = current_app.config.get('LDAP_BIND_PASSWORD')
-
-    if not all([uri, base_dn, bind_user_dn, bind_user_password]):
+    if not _service_config_complete():
         current_app.logger.error("LDAP configuration for service account search is incomplete.")
         return None
 
     conn = None
     try:
-        # Initialize and set TLS options
-        tls_option = current_app.config.get('LDAP_TLS_OPTION', 'DEMAND').upper()
-        if tls_option == 'DEMAND':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND)
-        elif tls_option == 'ALLOW':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_ALLOW)
-
-        conn = ldap.initialize(uri)
-        conn.protocol_version = ldap.VERSION3
-        conn.set_option(ldap.OPT_REFERRALS, 0)
-
-        conn.simple_bind_s(bind_user_dn, bind_user_password)
+        conn = _service_bind()
 
         search_filter = ldap.filter.filter_format('(uid=%s)', [username])
-        attributes = ['uid', 'uidNumber', 'gidNumber']
-        results = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, search_filter, attributes)
+        results = conn.search_s(current_app.config.get('LDAP_USER_BASE_DN'), ldap.SCOPE_SUBTREE,
+                                search_filter, ['uid', 'uidNumber', 'gidNumber'])
 
         if len(results) == 1:
             _dn, entry = results[0]
             details = {
-                'uid': entry.get('uid', [b''])[0].decode('utf-8'),
-                'uidNumber': entry.get('uidNumber', [b''])[0].decode('utf-8'),
-                'gidNumber': entry.get('gidNumber', [b''])[0].decode('utf-8')
+                'uid': _first(entry, 'uid'),
+                'uidNumber': _first(entry, 'uidNumber'),
+                'gidNumber': _first(entry, 'gidNumber'),
             }
             if all(details.values()):
                 current_app.logger.debug(f"Found LDAP details for {username}: {details}")
@@ -146,15 +163,14 @@ def get_ldap_user_details(username):
         current_app.logger.warning(
             f"Could not find a unique and complete LDAP entry for {username} during detail fetch.")
         return None
+    except LdapConfigError as e:
+        current_app.logger.error(str(e))
+        return None
     except ldap.LDAPError as e:
         current_app.logger.error(f"LDAP error getting details for {username}: {e}")
         return None
     finally:
-        if conn:
-            try:
-                conn.unbind_s()
-            except ldap.LDAPError:
-                pass
+        _unbind_quietly(conn)
 
 
 def get_all_users_in_group():
@@ -163,61 +179,44 @@ def get_all_users_in_group():
     This is used to populate the user search cache.
     Returns a list of dictionaries, e.g., [{'uid': 'j.doe', 'full_name': 'John Doe', 'mail': 'john.doe@rub.de'}], or None on failure.
     """
-    uri = current_app.config.get('LDAP_SERVER_URI')
     # LDAP_USER_BASE_DN is the subtree of the single WhalePond access group
-    # ("ccs-srv", modelled as an OU in RUB's directory). Every rubPerson under it
+    # ("ccs-srv", modelled as an OU in RUB's directory). Every person under it
     # is a WhalePond user, so a subtree search here lists exactly the group's
     # members. (This is the LDAP access group -- NOT the WhalePond-internal
     # groups that govern resource/image permissions.)
     base_dn = current_app.config.get('LDAP_USER_BASE_DN')
-    bind_user_dn = current_app.config.get('LDAP_BIND_USER')
-    bind_user_password = current_app.config.get('LDAP_BIND_PASSWORD')
 
-    if not all([uri, base_dn, bind_user_dn, bind_user_password]):
+    if not _service_config_complete():
         current_app.logger.error("LDAP configuration for group search is incomplete.")
         return None
 
     conn = None
     try:
-        # Initialize and set TLS options
-        tls_option = current_app.config.get('LDAP_TLS_OPTION', 'DEMAND').upper()
-        if tls_option == 'DEMAND':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_DEMAND)
-        elif tls_option == 'ALLOW':
-            ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_ALLOW)
+        conn = _service_bind()
 
-        conn = ldap.initialize(uri)
-        conn.protocol_version = ldap.VERSION3
-        conn.set_option(ldap.OPT_REFERRALS, 0)
-
-        # Bind with the service account to perform the search
-        conn.simple_bind_s(bind_user_dn, bind_user_password)
-
-        # List every person under the ccs-srv base DN (= all WhalePond users).
-        # No memberOf filter: ccs-srv is an OU, and its members are the person
-        # entries in its subtree, not objects linking to it via memberOf.
-        search_filter = ldap.filter.filter_format("(objectClass=rubPerson)", [])
-        attributes_to_fetch = ['uid', 'cn', 'mail']
-
-        results = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, search_filter, attributes_to_fetch)
+        # List every person under the base DN (= all WhalePond users). No
+        # memberOf filter: ccs-srv is an OU, and its members are the person
+        # entries in its subtree, not objects linking to it via memberOf. The
+        # person class is site-specific (RUB uses rubPerson), hence configurable.
+        object_class = current_app.config.get('LDAP_USER_OBJECT_CLASS') or 'rubPerson'
+        search_filter = ldap.filter.filter_format('(objectClass=%s)', [object_class])
+        results = conn.search_s(base_dn, ldap.SCOPE_SUBTREE, search_filter, ['uid', 'cn', 'mail'])
 
         users_found = []
         for _dn, entry in results:
-            uid = entry.get('uid', [b''])[0].decode('utf-8')
-            full_name = entry.get('cn', [b''])[0].decode('utf-8')
-            mail = entry.get('mail', [b''])[0].decode('utf-8') if entry.get('mail') else None
+            uid = _first(entry, 'uid')
             if uid:  # Only add users that have a UID
-                users_found.append({'uid': uid, 'full_name': full_name, 'mail': mail})
+                users_found.append({'uid': uid, 'full_name': _first(entry, 'cn'),
+                                    'mail': _first(entry, 'mail') or None})
 
         current_app.logger.info(f"Found {len(users_found)} users under LDAP base DN '{base_dn}'.")
         return users_found
 
+    except LdapConfigError as e:
+        current_app.logger.error(str(e))
+        return None
     except ldap.LDAPError as e:
         current_app.logger.error(f"LDAP error while fetching group members: {e}")
         return None
     finally:
-        if conn:
-            try:
-                conn.unbind_s()
-            except ldap.LDAPError:
-                pass
+        _unbind_quietly(conn)

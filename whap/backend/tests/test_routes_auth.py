@@ -2,7 +2,7 @@
 
 Auth is the entry point for every authenticated request. Local auth runs
 against the DB; LDAP auth is mocked (``authenticate_user`` returns a details
-dict, not a bare uid, despite the variable name in the route). Email lookup on
+dict, not a bare uid). Email lookup on
 successful login is mocked too, since it would otherwise hit LDAP/notification.
 """
 import pytest

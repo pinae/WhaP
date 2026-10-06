@@ -43,4 +43,8 @@ ldap:
   base:
     dn: "ou=usersgroup,dc=example,dc=com"
   enumerate: "False"  # only set to True to make getent passwd work. Reduces performance!
+  # Optional, defaults shown:
+  # tls_option: "DEMAND"              # DEMAND | ALLOW | NEVER -- certificate check for ldaps://
+  # user_object_class: "rubPerson"    # person class listed by the user search
+  # ca_cert_file: "/path/in/container/ca.pem"  # private CA to verify the server against
   schema: "rfc2307bis"

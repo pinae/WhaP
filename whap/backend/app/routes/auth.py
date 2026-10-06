@@ -32,11 +32,11 @@ def login():
     # --- 2. Try LDAP Authentication ---
     if not user_obj:
         current_app.logger.debug(f"User '{username}' not found locally or auth pending, trying LDAP...")
-        authenticated_uid = ldap_service.authenticate_user(username, password)
-        if authenticated_uid:
-            user_obj = LdapUserWrapper(authenticated_uid)  # Pass the LDAP uid string
+        ldap_details = ldap_service.authenticate_user(username, password)
+        if ldap_details:
+            user_obj = LdapUserWrapper(ldap_details)
             auth_method = "ldap"
-            current_app.logger.info(f"LDAP login successful for user {username} (UID: {authenticated_uid})")
+            current_app.logger.info(f"LDAP login successful for user {username} (UID: {ldap_details['uid']})")
         else:
             # LDAP auth failed
             current_app.logger.warning(f"LDAP authentication failed for user {username}.")

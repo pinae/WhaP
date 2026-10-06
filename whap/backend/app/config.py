@@ -16,6 +16,9 @@ print(f"Loading .env from: {dotenv_path}")
 # takeover.
 INSECURE_SECRET_KEY = 'a-very-secretive-secret-key-please-change'
 
+# Valid LDAP_TLS_OPTION values. Each maps onto python-ldap's OPT_X_TLS_<value>.
+LDAP_TLS_OPTIONS = ('DEMAND', 'ALLOW', 'NEVER')
+
 
 class Config:
     # --- Core Flask Settings ---
@@ -50,12 +53,19 @@ class Config:
     # Optional: Service account for searching if anonymous search is disabled or direct DNs fail
     LDAP_BIND_USER = os.environ.get('LDAP_BIND_USER')  # Full DN of service account
     LDAP_BIND_PASSWORD = os.environ.get('LDAP_BIND_PASSWORD')  # Password for service account
-    # TLS settings: DEMAND (require valid cert), ALLOW (try TLS, allow insecure), NEVER (no TLS)
-    # Default to DEMAND: ALLOW accepts invalid/self-signed certs, exposing the
-    # bind password (and user credentials) to a MITM.
+    # Certificate verification for ldaps:// connections -- one of LDAP_TLS_OPTIONS.
+    # It does not switch TLS on or off; the URI scheme does (ldap:// is plaintext).
+    #   DEMAND  verify the server certificate, refuse on failure
+    #   ALLOW   verify, but continue if the certificate is bad
+    #   NEVER   do not check the certificate at all
+    # Default to DEMAND: ALLOW and NEVER accept invalid/self-signed certs,
+    # exposing the bind password (and user credentials) to a MITM.
     LDAP_TLS_OPTION = os.environ.get('LDAP_TLS_OPTION', 'DEMAND')
-    # Optional: Path to CA certificate file if needed for TLS validation
-    # LDAP_CA_CERT_FILE = os.environ.get('LDAP_CA_CERT_FILE')
+    # Optional: CA certificate to verify the server against, e.g. a private CA.
+    LDAP_CA_CERT_FILE = os.environ.get('LDAP_CA_CERT_FILE')
+    # objectClass of person entries listed by the user search. Site-specific:
+    # RUB's directory uses rubPerson; a stock OpenLDAP uses inetOrgPerson.
+    LDAP_USER_OBJECT_CLASS = os.environ.get('LDAP_USER_OBJECT_CLASS', 'rubPerson')
 
     # --- Ansible Runner ---
     # Directory to store ansible-runner artifacts (playbooks, logs, inventory)
@@ -102,6 +112,12 @@ def find_config_problems(cfg):
     cors = getattr(cfg, 'CORS_ORIGINS', '') or ''
     if '*' in [origin.strip() for origin in cors.split(',')]:
         problems.append("CORS_ORIGINS must list explicit origins, not '*', when credentials are allowed.")
+
+    # An unrecognised value used to fall through silently and leave whatever
+    # certificate check the process last used; refuse to boot instead.
+    tls_option = (getattr(cfg, 'LDAP_TLS_OPTION', None) or 'DEMAND').upper()
+    if tls_option not in LDAP_TLS_OPTIONS:
+        problems.append(f"LDAP_TLS_OPTION must be one of {', '.join(LDAP_TLS_OPTIONS)}, got '{tls_option}'.")
 
     return problems
 
