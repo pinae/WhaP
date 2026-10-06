@@ -75,17 +75,18 @@ def create_my_group():
 
     # gpu_access_rules wire format is {server_id: "0,1" | "all"} (same as update
     # and as the frontend sends for both create and edit).
-    ok, message = permissions_service.validate_grantable_permissions(
-        user_perms,
-        server_ids=server_ids,
-        image_whitelist=image_whitelist,
-        gpu_rules=gpu_rules,
-        cpu_rules=cpu_rules,
-    )
+    try:
+        ok, message = permissions_service.validate_grantable_permissions(
+            user_perms,
+            server_ids=server_ids,
+            image_whitelist=image_whitelist,
+            gpu_rules=gpu_rules,
+            cpu_rules=cpu_rules,
+        )
+    except permissions_service.InvalidGrantRequest as e:
+        return jsonify({"message": str(e)}), 400
     if not ok:
-        # Invalid CPU format is a client error; permission failures are 403.
-        status = 400 if message and message.startswith("Invalid CPU limit") else 403
-        return jsonify({"message": message}), status
+        return jsonify({"message": message}), 403
 
     try:
         new_group = Group(
@@ -194,16 +195,18 @@ def update_my_group(group_id):
     user_perms = permissions_service.get_user_permissions(user_id)
 
     # update's wire format for gpu rules is {server_id: "csv"} already.
-    ok, message = permissions_service.validate_grantable_permissions(
-        user_perms,
-        server_ids=server_ids,
-        image_whitelist=image_whitelist,
-        gpu_rules=gpu_rules_dict,
-        cpu_rules=cpu_rules_dict,
-    )
+    try:
+        ok, message = permissions_service.validate_grantable_permissions(
+            user_perms,
+            server_ids=server_ids,
+            image_whitelist=image_whitelist,
+            gpu_rules=gpu_rules_dict,
+            cpu_rules=cpu_rules_dict,
+        )
+    except permissions_service.InvalidGrantRequest as e:
+        return jsonify({"message": str(e)}), 400
     if not ok:
-        status = 400 if message and message.startswith("Invalid CPU limit") else 403
-        return jsonify({"message": message}), status
+        return jsonify({"message": message}), 403
 
     # Validate the users list
     admin_found = False

@@ -4,6 +4,8 @@ The heavy matrix lives in test_group_grant_validation.py (the pure helper);
 these just prove both handlers call it and surface a 403 on rejection, and that
 a within-limits grant succeeds.
 """
+import pytest
+
 from app.models import Group
 
 
@@ -73,6 +75,31 @@ def test_update_group_denied_when_granting_unheld_server(client, db, make_local_
         "members": [{"user_uid": f"local:{user.id}", "is_group_admin": True}],
     })
     assert resp.status_code == 403, resp.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("make_payload", [
+    lambda sid: {"gpu_access_rules": {"srv1": "0"}},
+    lambda sid: {"cpu_access_rules": {"srv1": 2}},
+    lambda sid: {"accessible_server_ids": ["tycho"]},
+    lambda sid: {"cpu_access_rules": {str(sid): "nan"}},
+], ids=["gpu-key", "cpu-key", "server-list", "nan-cpu"])
+def test_malformed_grants_are_a_400_on_create_and_update(client, db, make_local_user, make_group, add_member,
+                                                         make_server, login_as, make_payload):
+    """A non-numeric server id used to raise ValueError outside the route's try
+    block: a 500. Malformed input is a 400; only refused grants are a 403."""
+    user, server = _make_limited_user(make_local_user, make_group, add_member, make_server)
+    payload = make_payload(server.id)
+    target = make_group(image_whitelist=["ubuntu"], servers=[server])
+    add_member(target, user, is_group_admin=True)
+    login_as(user)
+
+    created = client.post("/api/groups", json={"name": "malformed", **payload})
+    assert created.status_code == 400, created.get_data(as_text=True)
+    assert db.session.scalar(db.select(Group).filter_by(name="malformed")) is None
+
+    updated = client.put(f"/api/groups/{target.id}", json={
+        **payload, "members": [{"user_uid": f"local:{user.id}", "is_group_admin": True}]})
+    assert updated.status_code == 400, updated.get_data(as_text=True)
 
 
 def test_create_and_update_accept_identical_gpu_payload(client, db, make_local_user, make_group, add_member,

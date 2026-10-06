@@ -16,7 +16,9 @@ gpu_rules, cpu_rules)`` centralises it and returns ``(ok, message)``.
 gpu_rules / cpu_rules keys may arrive as str (JSON object keys) or int; the
 helper must handle both.
 """
-from app.services.permissions_service import validate_grantable_permissions
+import pytest
+
+from app.services.permissions_service import InvalidGrantRequest, validate_grantable_permissions
 
 
 def _perms(**over):
@@ -114,8 +116,35 @@ def test_cpu_unlimited_user_can_grant_anything():
     ok(_perms(), server_ids=[], image_whitelist=[], gpu_rules={}, cpu_rules={'2': 16.0})
 
 
-def test_cpu_invalid_format_denied():
-    denied(_perms(), server_ids=[], image_whitelist=[], gpu_rules={}, cpu_rules={'1': 'abc'})
+@pytest.mark.parametrize("value", ["abc", "nan", "NaN", "inf", 0, -2])
+def test_cpu_malformed_limit_is_invalid_not_denied(value):
+    # Malformed input is a 400 (raised), not a 403 (a refused grant). "nan"
+    # matters most: every comparison with NaN is false, so it used to slip past
+    # the cap and a 4-CPU user could grant "nan".
+    with pytest.raises(InvalidGrantRequest, match="CPU limit"):
+        validate_grantable_permissions(_perms(), server_ids=[], image_whitelist=[], gpu_rules={},
+                                       cpu_rules={'1': value})
+
+
+# --- malformed server ids (used to be an unhandled ValueError -> 500) --------
+
+@pytest.mark.parametrize("field", ["gpu_rules", "cpu_rules"])
+def test_non_numeric_server_id_key_is_invalid(field):
+    rules = {"gpu_rules": {}, "cpu_rules": {}}
+    rules[field] = {"srv1": "0" if field == "gpu_rules" else 1.0}
+    with pytest.raises(InvalidGrantRequest, match="Invalid server ID 'srv1'"):
+        validate_grantable_permissions(_perms(), server_ids=[], image_whitelist=[], **rules)
+
+
+def test_non_numeric_server_id_in_list_is_invalid():
+    with pytest.raises(InvalidGrantRequest, match="Invalid server ID 'tycho'"):
+        validate_grantable_permissions(_perms(), server_ids=["tycho"], image_whitelist=[], gpu_rules={},
+                                       cpu_rules={})
+
+
+def test_server_id_list_entries_may_be_strings():
+    # "1" used to be compared against the int-keyed permissions and denied.
+    ok(_perms(), server_ids=["1", 2], image_whitelist=[], gpu_rules={}, cpu_rules={})
 
 
 def test_cpu_on_unheld_server_denied():

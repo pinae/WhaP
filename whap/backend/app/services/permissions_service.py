@@ -1,6 +1,22 @@
+import math
+
 from ..models import ComputeServer
 from ..models import GroupMembership, Group
 from .. import db
+
+
+class InvalidGrantRequest(ValueError):
+    """The grant request is malformed -- a client error (400), as opposed to a
+    well-formed request for something the user may not grant (403)."""
+
+
+def _server_id(raw):
+    """A server id from the request as an int. JSON object keys always arrive
+    as strings, list entries may be either."""
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise InvalidGrantRequest(f"Invalid server ID '{raw}': server IDs are numbers.")
 
 
 def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
@@ -9,6 +25,9 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
 
     Single source of truth for create_my_group / update_my_group. Returns
     ``(ok, message)``; ``message`` is None when everything is grantable.
+    Raises InvalidGrantRequest for malformed input (a non-numeric server id,
+    an unparseable CPU limit), which the routes answer with 400 rather than
+    the 403 of a refused grant.
 
     Inputs are already parsed from the request:
       * ``server_ids``: list of server ids to grant access to.
@@ -28,6 +47,7 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
         return has_all_servers or sid in accessible
 
     # Server access.
+    server_ids = [_server_id(sid) for sid in server_ids]
     if not has_all_servers:
         for sid in server_ids:
             if sid not in accessible:
@@ -43,7 +63,7 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
     gpu_access = user_perms.get('gpu_access')
     if gpu_access != '*':
         for raw_sid, requested_spec in gpu_rules.items():
-            sid = int(raw_sid)
+            sid = _server_id(raw_sid)
             held = gpu_access.get(sid) if isinstance(gpu_access, dict) else None
             if not held:
                 return False, f"You do not have permission to grant access to any GPU on server ID {sid}."
@@ -56,7 +76,7 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
     # CPU limits.
     cpu_limits = user_perms.get('cpu_limits', {})
     for raw_sid, rule_val in cpu_rules.items():
-        sid = int(raw_sid)
+        sid = _server_id(raw_sid)
         if not _has_server(sid):
             return False, f"You do not have permission to grant access to server ID {sid}."
 
@@ -67,7 +87,11 @@ def validate_grantable_permissions(user_perms, server_ids, image_whitelist,
             try:
                 requested_limit = float(rule_val)
             except (ValueError, TypeError):
-                return False, f"Invalid CPU limit format for server {sid}"
+                raise InvalidGrantRequest(f"Invalid CPU limit format for server {sid}")
+            # float() accepts "nan", and every comparison with NaN is false, so
+            # it would slip past the cap check below.
+            if not math.isfinite(requested_limit) or requested_limit <= 0:
+                raise InvalidGrantRequest(f"Invalid CPU limit for server {sid}: use a positive number.")
 
         # A capped user cannot grant unlimited or a higher cap. An uncapped user
         # (allowed_limit is None) may grant anything.
