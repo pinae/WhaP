@@ -25,6 +25,13 @@ def _project_name_taken(name, owner_filter, exclude_id=None):
     return db.session.scalar(query) is not None
 
 
+def _is_owner(project):
+    """True if the current user owns ``project`` directly (not via a group or share)."""
+    owner = current_user.get_project_owner_dict()
+    return bool((project.owner_local_user_id and project.owner_local_user_id == owner.get('owner_local_user_id'))
+                or (project.owner_uid and project.owner_uid == owner.get('owner_uid')))
+
+
 def get_project_fs_path(project: Project, project_name_override: str = None) -> Path:
     """
     Constructs the full filesystem path for a project.
@@ -53,7 +60,12 @@ def get_projects():
 @proj_bp.route('/projects/<int:project_id>', methods=['GET'])
 @login_required
 def get_project_details(project_id):
+    """A project with its share list, for its owner to edit. Owner-only like
+    update and delete -- admins use the /admin/projects endpoints. Anyone else
+    gets 404, so the endpoint doesn't confirm which ids exist."""
     project = db.get_or_404(Project, project_id)
+    if not _is_owner(project):
+        return jsonify(message="Project not found or access denied"), 404
     info = project.to_dict()
     info['shares'] = [s.to_dict() for s in project.shares.all()]
     return jsonify(info), 200
@@ -68,14 +80,7 @@ def update_project(project_id):
     project = db.get_or_404(Project, project_id)
     data = request.get_json()
 
-    # Authorization check: User must be the owner.
-    is_owner = False
-    owner_filter_data = current_user.get_project_owner_dict()
-    if (project.owner_local_user_id and project.owner_local_user_id == owner_filter_data.get('owner_local_user_id')) or \
-            (project.owner_uid and project.owner_uid == owner_filter_data.get('owner_uid')):
-        is_owner = True
-
-    if not is_owner:
+    if not _is_owner(project):
         return jsonify(message="Access denied: Only the project owner can make changes."), 403
 
     # Update project name
@@ -183,14 +188,7 @@ def delete_project(project_id):
     """Allows a user to delete a project they own."""
     project = db.get_or_404(Project, project_id)
 
-    # Authorization: Ensure current user is the owner
-    is_owner = False
-    owner_filter_data = current_user.get_project_owner_dict()
-    if (project.owner_local_user_id and project.owner_local_user_id == owner_filter_data.get('owner_local_user_id')) or \
-            (project.owner_uid and project.owner_uid == owner_filter_data.get('owner_uid')):
-        is_owner = True
-
-    if not is_owner:
+    if not _is_owner(project):
         return jsonify(message="Access denied: Only the project owner can delete this project."), 403
 
     # Safety check: Prevent deletion if containers are associated

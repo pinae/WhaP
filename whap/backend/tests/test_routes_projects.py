@@ -37,6 +37,48 @@ def test_delete_project_denied_for_non_owner(client, db, make_local_user, make_p
     assert resp.status_code == 403, resp.get_data(as_text=True)
 
 
+def test_owner_reads_project_details_with_shares(client, db, make_local_user, make_project, login_as):
+    from app.models import ProjectShare
+    owner = make_local_user(username="proj_owner_r")
+    project = make_project(owner=owner, name="readable")
+    db.session.add(ProjectShare(project_id=project.id, user_uid="ldap:friend", is_writable=True))
+    db.session.commit()
+    login_as(owner)
+
+    resp = client.get(f"/api/projects/{project.id}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["shares"] == [
+        {"id": 1, "project_id": project.id, "user_uid": "ldap:friend", "is_writable": True}]
+
+
+@pytest.mark.parametrize("who", ["stranger", "share_recipient", "admin"])
+def test_project_details_hidden_from_everyone_but_the_owner(client, db, make_local_user, make_project,
+                                                           login_as, who):
+    """Used to return any project, with its share list, to any logged-in user.
+    A share recipient may mount the project but shouldn't see who else may;
+    admins have /admin/projects. 404, not 403, so ids can't be probed."""
+    from app.models import ProjectShare
+    owner = make_local_user(username="proj_owner_h")
+    project = make_project(owner=owner, name="private")
+    viewer = make_local_user(username=f"viewer_{who}", is_admin=(who == "admin"))
+    if who == "share_recipient":
+        db.session.add(ProjectShare(project_id=project.id, user_uid=f"local:{viewer.id}"))
+        db.session.commit()
+    login_as(viewer)
+
+    resp = client.get(f"/api/projects/{project.id}")
+    assert resp.status_code == 404, resp.get_data(as_text=True)
+    assert "shares" not in resp.get_data(as_text=True)
+
+
+def test_project_details_for_missing_and_hidden_ids_look_the_same(client, db, make_local_user, make_project,
+                                                                  login_as):
+    owner = make_local_user(username="proj_owner_p")
+    hidden = make_project(owner=owner, name="hidden")
+    login_as(make_local_user(username="prober"))
+    assert client.get(f"/api/projects/{hidden.id}").status_code == client.get("/api/projects/9999").status_code
+
+
 def test_delete_project_allowed_for_owner(client, db, make_local_user, make_project, login_as, monkeypatch):
     import app.routes.projects as projects
     # Neutralise the filesystem-delete job enqueue so the test stays in-process.
