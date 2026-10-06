@@ -10,6 +10,7 @@ from .. import db
 from .. import socketio
 import json
 import os
+import re
 
 cont_bp = Blueprint('containers', __name__)
 
@@ -29,6 +30,29 @@ def check_container_permission(container_id):
         return None, (jsonify(message="Access denied."), 403)
 
     return container, None  # Return container and no error
+
+
+def parse_gpu_request(raw, server):
+    """Turn the requested GPUs into a sorted list of index strings.
+
+    Accepts a comma-separated string or a list. No GPUs may be sent as None,
+    '', [] or 'none' -- the frontend sends 'none' -- and comes back as [].
+    Every index must exist on ``server``. Returns (gpus, error_message).
+    """
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() in ('', 'none')):
+        return [], None
+    items = raw.split(',') if isinstance(raw, str) else raw
+    if not isinstance(items, list):
+        return None, "GPUs must be a comma-separated list of GPU numbers, or 'none'."
+    gpus = set()
+    for item in items:
+        text = str(item).strip()
+        if not re.fullmatch(r'[0-9]+', text):  # not isdigit(): it accepts '²', which int() rejects
+            return None, f"'{text}' is not a GPU number."
+        if int(text) >= server.gpu_count:
+            return None, f"{server.hostname} has no GPU {text} (it has {server.gpu_count})."
+        gpus.add(str(int(text)))
+    return sorted(gpus, key=int), None
 
 
 def queue_action_job(container, action, optimistic_status):
@@ -110,7 +134,6 @@ def create_container():
     project_id = data.get('projectId')
     server_id = data.get('serverId')
     image_name = data.get('imageName')
-    gpus = data.get('gpus').split(',')
     ssh_key_id = data.get('sshKeyId')
     password = data.get('password')
     ttl_date_str = data.get('ttlDate')
@@ -119,8 +142,8 @@ def create_container():
     additional_volumes = data.get('additional_volumes', [])
 
     # --- Validate inputs ---
-    if not all([project_id, server_id, image_name]) or gpus is None:
-        return jsonify({"message": "Missing required fields (Project, Server, Image, GPUs)"}), 400
+    if not all([project_id, server_id, image_name]):
+        return jsonify({"message": "Missing required fields (Project, Server, Image)"}), 400
 
     # --- Find associated objects and check ownership/validity ---
     # Find project BELONGING TO CURRENT USER
@@ -133,6 +156,10 @@ def create_container():
     server = db.session.get(ComputeServer, server_id)
     if not server:
         return jsonify({"message": "Invalid server ID"}), 404
+
+    gpus, gpu_error = parse_gpu_request(data.get('gpus'), server)
+    if gpu_error:
+        return jsonify({"message": gpu_error}), 400
 
     ssh_key = None
     if ssh_key_id:
@@ -147,9 +174,6 @@ def create_container():
             ttl_date = datetime.fromisoformat(ttl_date_str)
         except (ValueError, TypeError):
             return jsonify({"message": "Invalid TTL date format. Please use YYYY-MM-DD."}), 400
-
-    if not isinstance(gpus, list):
-        return jsonify({"message": "GPUs must be a comma separated list"}), 400
 
     # --- CPU Limit Validation ---
     cpu_limit = None
