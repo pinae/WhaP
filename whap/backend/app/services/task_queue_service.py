@@ -3,11 +3,12 @@ from pathlib import Path
 from .. import db
 from ..models import FileOperationJob
 
-def enqueue_create_directory(path: Path, user):
-    """Enqueues a job to create a directory."""
+def enqueue_create_directory(path: Path, user, mode=None):
+    """Enqueues a job to create a directory (see local_file_service.create_directory)."""
     payload = {
         'path': str(path),
-        'user_identifier': user.get_id()
+        'user_identifier': user.get_id(),
+        'mode': mode,
     }
     job = FileOperationJob(
         operation='create_directory',

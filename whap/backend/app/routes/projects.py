@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from pathlib import Path
 from ..models import Project, ProjectShare, LocalUser, Group
+from ..services.local_file_service import PROJECT_DIR_MODE
 from ..services.task_queue_service import enqueue_rename_directory, enqueue_create_directory, enqueue_delete_directory
 from .. import admin_required
 from .. import db
@@ -122,6 +123,23 @@ def update_project(project_id):
 
     try:
         db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"User {current_user.get_id()} failed to update project {project_id}: {e}",
+                                 exc_info=True)
+        return jsonify({"message": "Failed to update project"}), 500
+
+    # Directories of projects created before PROJECT_DIR_MODE are 0755, so
+    # sharing one read-write would not let anyone else write. Re-apply the
+    # mode (create_directory is idempotent). Not for group projects, whose
+    # directory create_directory would hand to whoever made the change.
+    if project.owner_group_id is None and project.shares.filter_by(is_writable=True).count():
+        try:
+            enqueue_create_directory(get_project_fs_path(project), current_user, mode=PROJECT_DIR_MODE)
+        except Exception as e:
+            current_app.logger.error(f"Failed to enqueue mode fix for project {project.id}: {e}", exc_info=True)
+
+    try:
         project_data = project.to_dict()
         project_data['shares'] = [share.to_dict() for share in project.shares]
         return jsonify(project_data), 200
@@ -168,7 +186,7 @@ def create_project():
         # --- Enqueue a file operation job to create the directory ---
         try:
             project_path = get_project_fs_path(new_project)
-            enqueue_create_directory(project_path, current_user)
+            enqueue_create_directory(project_path, current_user, mode=PROJECT_DIR_MODE)
             current_app.logger.info(
                 f"User {current_user.get_id()} created project '{project_name}' and enqueued directory creation job.")
         except Exception as file_op_err:
@@ -276,7 +294,7 @@ def admin_create_project():
         # --- Enqueue a file operation job to create the directory ---
         try:
             project_path = get_project_fs_path(new_project)
-            enqueue_create_directory(project_path, current_user)
+            enqueue_create_directory(project_path, current_user, mode=PROJECT_DIR_MODE)
             current_app.logger.info(
                 f"User {current_user.get_id()} created project '{project_name}' and enqueued directory creation job.")
         except Exception as file_op_err:

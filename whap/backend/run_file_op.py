@@ -26,7 +26,7 @@ def main(job_id):
             if job.operation == 'create_directory':
                 user = load_user_by_identifier(payload['user_identifier'])
                 if not user: raise ValueError("User not found")
-                local_file_service.create_directory(Path(payload['path']), user)
+                local_file_service.create_directory(Path(payload['path']), user, mode=payload.get('mode'))
                 log_output.append(f"Successfully created directory: {payload['path']}")
 
             elif job.operation == 'rename_directory':

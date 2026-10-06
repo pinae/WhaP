@@ -153,3 +153,32 @@ def test_same_owner_duplicate_blocked_at_db_level(app, db, make_local_user):
     with pytest.raises(sqlalchemy.exc.IntegrityError):
         db.session.commit()
     db.session.rollback()
+
+
+# --- Read-write shares need a group-writable directory ----------------------
+
+def _queued_modes(db):
+    import json
+    from app.models import FileOperationJob
+    jobs = db.session.scalars(db.select(FileOperationJob).filter_by(operation="create_directory")).all()
+    return [json.loads(job.payload)["mode"] for job in jobs]
+
+
+def test_a_new_project_directory_is_created_group_writable(client, db, make_local_user, login_as):
+    from app.services.local_file_service import PROJECT_DIR_MODE
+    login_as(make_local_user(username="rw_owner"))
+    assert client.post("/api/projects", json={"name": "shared"}).status_code == 201
+    assert _queued_modes(db) == [PROJECT_DIR_MODE]
+
+
+@pytest.mark.parametrize("writable, queued", [(True, 1), (False, 0)])
+def test_a_writable_share_reapplies_the_mode(client, db, make_local_user, make_project, login_as, writable, queued):
+    """Directories made before the mode existed are 0755; sharing one
+    read-write must fix that, or nobody but the owner can write to it."""
+    owner = make_local_user(username="rw_owner2")
+    project = make_project(owner=owner, name="older")
+    login_as(owner)
+    resp = client.put(f"/api/projects/{project.id}",
+                      json={"shares": [{"user_uid": "ldap:someone", "is_writable": writable}]})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert len(_queued_modes(db)) == queued

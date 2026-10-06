@@ -83,6 +83,44 @@ def test_create_directory_chown_error_is_logged_not_raised(app, local_user, tmp_
     assert target.is_dir()
 
 
+@pytest.fixture
+def umask_022():
+    old = os.umask(0o022)
+    yield
+    os.umask(old)
+
+
+def test_create_directory_applies_mode_despite_umask(app, local_user, tmp_path, umask_022):
+    """Project directories must be group-writable for read-write shares; a
+    plain makedirs under the usual umask gives 0755."""
+    target = tmp_path / "proj"
+    lfs.create_directory(target, local_user, mode=lfs.PROJECT_DIR_MODE)
+    assert target.stat().st_mode & 0o7777 == 0o2775
+
+
+def test_create_directory_corrects_mode_of_existing_directory(app, local_user, tmp_path):
+    target = tmp_path / "proj"
+    target.mkdir(mode=0o755)
+    target.chmod(0o755)
+    lfs.create_directory(target, local_user, mode=lfs.PROJECT_DIR_MODE)
+    assert target.stat().st_mode & 0o7777 == 0o2775
+
+
+def test_create_directory_sets_mode_after_chown(app, local_user, tmp_path):
+    """chown can clear setgid, so the mode must be applied after it."""
+    calls = []
+    with patch("app.services.local_file_service.os.chown", lambda *a: calls.append("chown")), \
+            patch("app.services.local_file_service.os.chmod", lambda *a: calls.append("chmod")):
+        lfs.create_directory(tmp_path / "proj", local_user, mode=lfs.PROJECT_DIR_MODE)
+    assert calls == ["chown", "chmod"]
+
+
+def test_create_directory_without_mode_leaves_it(app, local_user, tmp_path, umask_022):
+    target = tmp_path / "plain"
+    lfs.create_directory(target, local_user)
+    assert target.stat().st_mode & 0o7777 == 0o755
+
+
 # --- rename_directory -------------------------------------------------------
 
 def test_rename_directory_moves(app, local_user, tmp_path):

@@ -24,7 +24,7 @@ def _only_job(db):
 
 def test_enqueue_create_directory(app, db, make_local_user):
     user = _user(make_local_user, "tqs_create")
-    job = tqs.enqueue_create_directory("/data/projects/alice/proj", user)
+    job = tqs.enqueue_create_directory("/data/projects/alice/proj", user, mode=0o2775)
 
     persisted = _only_job(db)
     assert persisted is job
@@ -34,6 +34,7 @@ def test_enqueue_create_directory(app, db, make_local_user):
     assert payload == {
         "path": "/data/projects/alice/proj",
         "user_identifier": user.get_id(),
+        "mode": 0o2775,
     }
 
 

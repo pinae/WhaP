@@ -5,6 +5,12 @@ from flask import current_app
 from ..user_management import LdapUserWrapper, LocalUserWrapper
 from ..services import ldap_service
 
+# Project directories. A project shared read-write must be writable by every
+# user it is shared with, and their containers get the directory's group as a
+# supplementary group (get_gids_for_paths), so the group needs write access.
+# setgid makes what they create inherit that group rather than their own.
+PROJECT_DIR_MODE = 0o2775
+
 
 def _get_user_ids(user):
     """
@@ -38,13 +44,16 @@ def _get_user_ids(user):
             return None, None
 
 
-def create_directory(path: Path, user):
+def create_directory(path: Path, user, mode=None):
     """
-    Idempotently creates a directory and sets its ownership.
+    Idempotently creates a directory and sets its ownership, and its mode if given.
 
     Args:
         path (Path): The directory path to create.
         user (User): The user object (LocalUserWrapper or LdapUserWrapper) to own the directory.
+        mode (int): Permission bits to set, e.g. PROJECT_DIR_MODE. Applied
+            after chown, which may clear setgid, and also to an existing
+            directory. None leaves the mode as created (subject to the umask).
     """
     app = current_app._get_current_object()
     with app.app_context():
@@ -69,6 +78,14 @@ def create_directory(path: Path, user):
                 app.logger.info(f"Created directory '{path}' and set ownership to UID={uid}, GID={gid}.")
             except OSError as e:
                 app.logger.error(f"Error creating directory '{path}' or setting its ownership: {e}")
+                return
+
+        if mode is not None and (path.stat().st_mode & 0o7777) != mode:
+            try:
+                os.chmod(path, mode)
+                app.logger.info(f"Set mode of '{path}' to {mode:o}.")
+            except OSError as e:
+                app.logger.error(f"Failed to set mode of '{path}' to {mode:o}: {e}")
 
 
 def rename_directory(old_path: Path, new_path: Path, user):

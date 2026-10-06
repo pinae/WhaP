@@ -50,8 +50,11 @@ def test_user_creates_a_project_and_the_worker_makes_its_directory(login, rig, r
     name = f"thesis-{run_id}"
     login("alice").projects().create(name)
 
-    # The worker creates it asynchronously, owned by alice's LDAP uid and gid.
-    assert rig.owner_of(rig.project_dir("alice", name)) == ALICE_IDS
+    # The worker creates it asynchronously, owned by alice's LDAP uid and gid,
+    # and group-writable so that sharing it read-write works.
+    path = rig.project_dir("alice", name)
+    assert rig.owner_of(path) == ALICE_IDS
+    assert rig.on_storage("stat", "-c", "%a", path).stdout.strip() == "2775"
 
 
 def test_shared_project_and_dataset_are_offered_as_volumes(login, rig, run_id):
