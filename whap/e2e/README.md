@@ -27,7 +27,11 @@ Every session starts by resetting the rig and seeding it (see "Seeding the
 rig"), so runs don't depend on each other. If a previous run left containers
 behind, the session stops and lists them; delete them in WhaP, or run with
 `--force-reset` to drop their records. Use `--rig` or `WHAP_E2E_RIG` to point at
-another rig file, and `--headed` to watch the browser.
+another rig file, `--headed` to watch the browser, and `--matrix full` to run
+the container matrix on every role (below).
+
+The modules run in phase order -- identity, one container's lifecycle, then
+the matrix -- whatever their file names, so a broken login fails fast.
 
 A failed test leaves a Playwright trace and a screenshot in `test-results/`;
 open the trace with `uv run playwright show-trace <file>`.
@@ -72,6 +76,34 @@ compute server, which reset leaves alone, so the multi-gigabyte download happens
 once per rig. Set `[torch] index_url` to a CUDA build the server's driver
 supports. The first container of a role may also build or pull its image: allow
 for it in `[container] start_timeout`.
+
+`tests/test_container_matrix.py` covers how a user gets into a container and
+what it can mount. Each case is one container, started through the form and
+deleted before the next starts:
+
+| Case       | Logs in with      | Volumes                                     | Checks                                                                 |
+|------------|-------------------|---------------------------------------------|------------------------------------------------------------------------|
+| `key`      | SSH key           | the e2e dataset, a project bob shares `ro`  | key login; dataset marker readable; neither volume writable            |
+| `password` | password          | a project bob shares `rw`                   | password login; the key is refused; alice's file lands in bob's project on the storage server, owned by her |
+| `both`     | key and password  | --                                          | the requested GPU is visible (`--matrix full` only)                    |
+
+`--matrix tiered`, the default, runs the cases on `[container] image`;
+`--matrix full` runs them on every `worker_` role in `roles/` except
+`worker_ollama`, which serves an HTTP API rather than SSH logins. Two more
+tests need no case: the form refuses a container with neither key nor password
+(as does the API), and a password-only container started in a
+project that earlier had a keyed one must refuse that key.
+
+Two known issues are pinned with `pytest.xfail` inside the tests, only when the
+failure is the known one, so anything else still fails:
+
+- a key from an earlier container in the same project keeps working: it lives
+  in `~/.ssh/authorized_keys` in the project's home, which outlives the
+  container, and a container without a key leaves the file alone
+- a read-write share is read-only to everyone but its owner: project
+  directories are created `0755`
+
+Remove the `xfail` branch once each is fixed.
 
 Tests address the UI through page objects in `pages/`, never through selectors,
 so a frontend change touches only that package. `remote.py` logs into

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 import pytest
 from playwright.sync_api import expect
 
+from containers import delete_container, tail
 from pages import LoginPage
 from pages.user_panel import ContainerCard
 from remote import ContainerShell
@@ -106,7 +107,7 @@ def provisioned(browser, browser_context_args, rig, ssh_keypair, run_id):
     run.log_text = run.card.log_text()
     yield run
 
-    _delete_if_still_there(run, rig.container.delete_timeout)
+    delete_container(page, run.card.id, rig.container.delete_timeout)
     context.close()
 
 
@@ -124,17 +125,6 @@ def _reload_mid_job(run):
         run.page.wait_for_timeout(250)
 
 
-def _delete_if_still_there(run, timeout):
-    """Free the GPU and the address for whatever runs next, if the deletion test didn't."""
-    path = f"/api/containers/{run.card.id}"
-    if run.api(path).status == 404:
-        return
-    run.page.request.delete(path)
-    until = time.monotonic() + timeout
-    while time.monotonic() < until and run.api(path).status != 404:
-        time.sleep(5)
-
-
 @pytest.fixture(scope="module")
 def running(provisioned):
     if provisioned.final_status != "RUNNING":
@@ -144,10 +134,6 @@ def running(provisioned):
 
 def shell(run, rig, **credentials):
     return ContainerShell(run.card.ip(), rig.users["alice"].uid, **credentials)
-
-
-def tail(text, lines=40):
-    return "\n".join(text.splitlines()[-lines:])
 
 
 # --- The log ---------------------------------------------------------------------

@@ -7,9 +7,8 @@ the browser as a person would, checking the storage server's filesystem where
 a person would look there.
 """
 import os
+from collections.abc import Hashable
 import secrets
-import subprocess
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from pages import LoginPage
+from rig import rig_for
 
 HERE = Path(__file__).resolve().parent
 
@@ -28,84 +28,43 @@ def pytest_addoption(parser):
     parser.addoption("--force-reset", action="store_true",
                      help="Pass --force to e2e-reset: drop leftover container records of the test users "
                           "even though the containers may still exist on a compute server.")
+    parser.addoption("--matrix", choices=("tiered", "full"), default="tiered",
+                     help="Which roles the container matrix covers: 'tiered' (default) runs it on "
+                          "[container] image only, 'full' on every worker role in roles/.")
+
+
+# Phases run in this order, each building on the one before; other modules last.
+PHASES = ["test_identity.py", "test_container_lifecycle.py", "test_container_matrix.py"]
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_collection_modifyitems(items):
+    """Run phases in order, a matrix case's tests together, and each module's tests as written.
+
+    pytest groups tests that share a module-scoped parameter, but across the
+    whole session: it can move one of a case's tests past other modules,
+    which would start that case's container twice. A wrapper, so this runs
+    after that grouping and puts everything back.
+    """
+    yield
+    cases = {}
+
+    def position(item):
+        phase = PHASES.index(item.path.name) if item.path.name in PHASES else len(PHASES)
+        callspec = getattr(item, "callspec", None)
+        case = callspec.params.get("case") if callspec else None
+        # After every case. Not len(items): the list reads as empty while it is being sorted.
+        case_index = cases.setdefault(case, len(cases)) if isinstance(case, Hashable) and case else float("inf")
+        return phase, case_index, item.function.__code__.co_firstlineno
+
+    items.sort(key=position)
 
 
 # --- The rig ------------------------------------------------------------------
 
-@dataclass(frozen=True)
-class User:
-    uid: str
-    password: str
-
-    @property
-    def prefixed(self):
-        return f"ldap:{self.uid}"
-
-
-@dataclass(frozen=True)
-class ContainerSettings:
-    image: str              # role the single-container tests use
-    server: str | None      # hostname to pick; None when the user has only one server
-    gpu: str                # GPU index to request
-    gpu_name: str           # substring nvidia-smi must report, e.g. "2070"; "" to accept any
-    start_timeout: int      # seconds; a fresh rig builds or pulls images on first use
-    delete_timeout: int
-    torch_index_url: str    # pip index for torch; "" for PyPI
-    torch_install_timeout: int
-
-
-class Rig:
-    """What rig.toml describes, plus the commands to reach the storage server."""
-
-    def __init__(self, path):
-        path = Path(path)
-        if not path.exists():
-            pytest.exit(f"No rig description at {path}. Copy rig.example.toml to rig.toml and fill it in.",
-                        returncode=4)
-        data = tomllib.loads(path.read_text())
-        try:
-            self.url = data["whap"]["url"].rstrip("/")
-            self.users = {key: User(u["uid"], u["password"]) for key, u in data["users"].items()}
-            storage = data["storage"]
-            self.shell = list(storage["shell"])
-            self.backend_cli = list(storage["backend_cli"])
-            self.seed_spec = (path.parent / storage["seed_spec"]).resolve()
-            self.projects_dir = storage["projects_dir"].rstrip("/")
-        except KeyError as e:
-            pytest.exit(f"{path} is missing {e}; see rig.example.toml.", returncode=4)
-        self.browser = data.get("browser", {})
-        container, torch = data.get("container", {}), data.get("torch", {})
-        self.container = ContainerSettings(
-            image=container.get("image", "worker_local_ubuntu2510_ssh"),
-            server=container.get("server"),
-            gpu=str(container.get("gpu", "0")),
-            gpu_name=container.get("gpu_name", ""),
-            start_timeout=int(container.get("start_timeout", 1800)),
-            delete_timeout=int(container.get("delete_timeout", 600)),
-            torch_index_url=torch.get("index_url", ""),
-            torch_install_timeout=int(torch.get("install_timeout", 1800)),
-        )
-        for key in ("alice", "bob"):
-            if key not in self.users:
-                pytest.exit(f"{path} needs a [users.{key}] section; see rig.example.toml.", returncode=4)
-
-    def on_storage(self, *command, input=None, check=True):
-        """Run a command on the storage server and return the completed process."""
-        result = subprocess.run([*self.shell, *command], input=input, capture_output=True, text=True,
-                                timeout=120)
-        if check and result.returncode != 0:
-            raise AssertionError(f"`{' '.join(command)}` on the storage server failed "
-                                 f"({result.returncode}):\n{result.stdout}{result.stderr}")
-        return result
-
-    def flask(self, *args, input=None, check=True):
-        """Run a backend `flask` command on the storage server."""
-        return self.on_storage(*self.backend_cli, *args, input=input, check=check)
-
-
 @pytest.fixture(scope="session")
 def rig(pytestconfig):
-    return Rig(pytestconfig.getoption("--rig"))
+    return rig_for(pytestconfig)
 
 
 @pytest.fixture(scope="session", autouse=True)

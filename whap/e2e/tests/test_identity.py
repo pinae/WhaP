@@ -4,7 +4,6 @@ Run first; everything later builds on a user who can sign in through LDAP,
 has an SSH key, and owns a project whose directory the worker created.
 """
 import re
-import time
 
 from playwright.sync_api import expect
 
@@ -52,8 +51,7 @@ def test_user_creates_a_project_and_the_worker_makes_its_directory(login, rig, r
     login("alice").projects().create(name)
 
     # The worker creates it asynchronously, owned by alice's LDAP uid and gid.
-    path = f"{rig.projects_dir}/{rig.users['alice'].uid}/{name}"
-    assert wait_for_owner(rig, path) == ALICE_IDS
+    assert rig.owner_of(rig.project_dir("alice", name)) == ALICE_IDS
 
 
 def test_shared_project_and_dataset_are_offered_as_volumes(login, rig, run_id):
@@ -67,16 +65,3 @@ def test_shared_project_and_dataset_are_offered_as_volumes(login, rig, run_id):
 
     assert f"Shared: {name} (ro)" in offered
     assert "Dataset: e2e-dataset (ro)" in offered
-
-
-def wait_for_owner(rig, path, timeout=60):
-    """Poll the storage server until ``path`` exists; return its uid:gid."""
-    deadline = time.monotonic() + timeout
-    while True:
-        result = rig.on_storage("stat", "-c", "%u:%g", path, check=False)
-        if result.returncode == 0:
-            return result.stdout.strip()
-        if time.monotonic() > deadline:
-            raise AssertionError(f"{path} did not appear on the storage server within {timeout}s -- "
-                                 f"is the worker running? stat said: {result.stderr.strip()}")
-        time.sleep(1)

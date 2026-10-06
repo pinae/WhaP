@@ -56,11 +56,13 @@ class CreateContainer:
         self.page.get_by_test_id(option).click()
         expect(self.page.get_by_role("listbox")).to_be_hidden()
 
-    def start(self, *, project, image, ssh_key=None, password=None, server=None, gpus=()):
-        """Fill in the form and press Start. Returns the new container's card.
+    def fill(self, *, project, image, ssh_key=None, password=None, server=None, gpus=(), volumes=()):
+        """Fill in the form without submitting it.
 
         ``image`` is the role name (worker_...). ``server`` may be omitted when
-        the user has exactly one, which the form pre-selects.
+        the user has exactly one, which the form pre-selects. ``volumes`` are
+        labels as the volume list shows them, e.g. "Dataset: x (ro)"; each is
+        mounted where the form suggests, recorded in ``self.mount_paths``.
         """
         self._choose("container-project-select", f"container-project-option-{project}")
         self._choose("container-image-select", f"container-image-option-{image}")
@@ -72,17 +74,43 @@ class CreateContainer:
             self._choose("container-server-select", f"container-server-option-{server}")
         for gpu in gpus:
             self.page.get_by_test_id(f"container-gpu-{gpu}").check()
+        self.mount_paths = {label: self.add_volume(label) for label in volumes}
+        return self
+
+    def submit(self):
         self.page.get_by_test_id("container-submit").click()
+
+    def start(self, *, project, image, **choices):
+        """Fill in the form and press Start. Returns the new container's card."""
+        self.fill(project=project, image=image, **choices).submit()
         # The panel switches to My Containers, where the new card appears.
         expect(self.page.get_by_test_id("tab-containers")).to_have_attribute("aria-selected", "true")
         return ContainerCard.newest(self.page, project=project, image=image)
 
-    def mountable_volumes(self):
-        """Open "Add Volume" and return what it offers, e.g. ['Shared: x (ro)', ...]."""
+    def error(self):
+        """The error the form shows, waiting for it to appear."""
+        alert = self.page.get_by_test_id("container-form-error")
+        expect(alert).to_be_visible()
+        return alert.inner_text().strip()
+
+    def add_volume(self, label):
+        """Mount a volume through "Add Volume"; return the container path the form suggests."""
+        self._open_volume_list()
+        option = self.page.get_by_role("listbox").get_by_role("option", name=label, exact=True)
+        host_path = option.get_attribute("data-value")
+        option.click()
+        self.page.get_by_test_id("volume-add-confirm").click()
+        return self.page.get_by_test_id(f"mounted-volume-path-{host_path}").input_value()
+
+    def _open_volume_list(self):
         add = self.page.get_by_test_id("container-volume-add")
         expect(add).to_be_enabled()  # disabled until the list has loaded
         add.click()
         self.page.get_by_test_id("volume-select").click()
+
+    def mountable_volumes(self):
+        """Open "Add Volume" and return what it offers, e.g. ['Shared: x (ro)', ...]."""
+        self._open_volume_list()
         options = self.page.get_by_role("listbox").get_by_role("option")
         expect(options.first).to_be_visible()
         labels = [label.strip() for label in options.all_inner_texts()]
