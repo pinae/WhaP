@@ -1,0 +1,17 @@
+# The end-to-end suite, run once by whap-e2e.timer. Install as a user unit on
+# the storage server (see ../README.md, "Nightly runs").
+[Unit]
+Description=WhaP end-to-end tests against the test rig
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Where the repository is checked out on this machine.
+Environment=WHAP_REPO=%h/WhaP
+Environment=WHAP_E2E_RESULTS=%h/whap-e2e-results
+# User units get a minimal PATH; uv usually lives in ~/.local/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/sh -c 'exec "$WHAP_REPO/whap/e2e/nightly/run.sh"'
+# A cold run builds every image; give it the night.
+TimeoutStartSec=8h

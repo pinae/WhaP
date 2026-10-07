@@ -76,39 +76,38 @@ class Provisioned:
 
 
 @pytest.fixture(scope="module")
-def provisioned(browser, browser_context_args, rig, ssh_keypair, run_id):
+def provisioned(browser, browser_context_args, rig, recorder, ssh_keypair, run_id):
     """Create the container through the form and record how it came up. Asserts nothing."""
-    context = browser.new_context(**browser_context_args)
-    page = context.new_page()
-    sockets = SocketRecorder(page)
-    alice = rig.users["alice"]
-    panel = LoginPage(page).open().login(alice.uid, alice.password)
-    key_name = f"e2e-{run_id}"
-    panel.ssh_keys().add(key_name, ssh_keypair.public_key)
-    panel.projects().create(PROJECT)
+    with recorder.context(browser, browser_context_args, name="lifecycle", owner="provisioned") as context:
+        page = context.new_page()
+        sockets = SocketRecorder(page)
+        alice = rig.users["alice"]
+        panel = LoginPage(page).open().login(alice.uid, alice.password)
+        key_name = f"e2e-{run_id}"
+        panel.ssh_keys().add(key_name, ssh_keypair.public_key)
+        panel.projects().create(PROJECT)
 
-    password = secrets.token_urlsafe(12)
-    card = panel.create_container().start(
-        project=PROJECT, image=rig.container.image, ssh_key=key_name, password=password,
-        server=rig.container.server, gpus=[rig.container.gpu])
-    run = Provisioned(page, card, sockets, password)
+        password = secrets.token_urlsafe(12)
+        card = panel.create_container().start(
+            project=PROJECT, image=rig.container.image, ssh_key=key_name, password=password,
+            server=rig.container.server, gpus=[rig.container.gpu])
+        run = Provisioned(page, card, sockets, password)
 
-    deadline = time.monotonic() + rig.container.start_timeout
-    while run.card.status in ContainerCard.BUSY and time.monotonic() < deadline:
-        if run.reloaded_at is None:
-            count = run.card.live_lines()
-            if not run.line_counts or count != run.line_counts[-1]:
-                run.line_counts.append(count)
-            if len(run.line_counts) >= 4:  # the log has visibly grown three times
-                _reload_mid_job(run)
-        page.wait_for_timeout(250)
+        deadline = time.monotonic() + rig.container.start_timeout
+        while run.card.status in ContainerCard.BUSY and time.monotonic() < deadline:
+            if run.reloaded_at is None:
+                count = run.card.live_lines()
+                if not run.line_counts or count != run.line_counts[-1]:
+                    run.line_counts.append(count)
+                if len(run.line_counts) >= 4:  # the log has visibly grown three times
+                    _reload_mid_job(run)
+            page.wait_for_timeout(250)
 
-    run.final_status = run.card.status
-    run.log_text = run.card.log_text()
-    yield run
+        run.final_status = run.card.status
+        run.log_text = run.card.log_text()
+        yield run
 
-    delete_container(page, run.card.id, rig.container.delete_timeout)
-    context.close()
+        delete_container(page, run.card.id, rig.container.delete_timeout)
 
 
 def _reload_mid_job(run):

@@ -26,15 +26,29 @@ uv run pytest
 Every session starts by resetting the rig and seeding it (see "Seeding the
 rig"), so runs don't depend on each other. If a previous run left containers
 behind, the session stops and lists them; delete them in WhaP, or run with
-`--force-reset` to drop their records. Use `--rig` or `WHAP_E2E_RIG` to point at
-another rig file, `--headed` to watch the browser, and `--matrix full` to run
-the container matrix on every role (below).
+`--force-reset` to drop their records. Use `--rig=PATH` (with the `=`: a bare
+path argument makes pytest look for its configuration there) or `WHAP_E2E_RIG`
+to point at another rig file, `--headed` to watch the browser, and
+`--matrix full` to run the container matrix on every role (below).
 
 The modules run in phase order -- identity, one container's lifecycle, then
 the matrix -- whatever their file names, so a broken login fails fast.
 
-A failed test leaves a Playwright trace and a screenshot in `test-results/`;
-open the trace with `uv run playwright show-trace <file>`.
+### What a failure leaves behind
+
+Everything lands in `test-results/` (pytest's `--output`), so a failure can be
+understood without running the suite again:
+
+- a Playwright trace of every browser context the failed test used --
+  pytest-playwright's own, and the ones the harness opens for `login` and for
+  each container (`evidence.py`). Open one with
+  `uv run playwright show-trace <file>`. The harness's traces hold DOM
+  snapshots but no screencast, which would add tens of MB per container.
+- if the test had a container: a screenshot, the container's whole job log
+  (`job.log`), and its `docker inspect` state and `docker logs` from the
+  compute server (`docker.log`). The last lines of each are also in the
+  report. `docker.log` needs `[compute] shell` in rig.toml, e.g.
+  `["ssh", "tycho"]`, as a user with docker access.
 
 ### What runs today
 
@@ -114,6 +128,33 @@ intended, and not tested.
 Tests address the UI through page objects in `pages/`, never through selectors,
 so a frontend change touches only that package. `remote.py` logs into
 containers over SSH, accepting their host keys -- each test container is new.
+
+## Nightly runs
+
+`nightly/run.sh` runs the suite once, unattended, into a dated directory under
+`$WHAP_E2E_RESULTS` (default `~/whap-e2e-results`): `pytest.log`, `junit.xml`,
+`summary.txt` (pytest's last line) and `test-results/`. `latest` points at the
+newest run, and runs older than `$WHAP_E2E_KEEP_DAYS` (14) are removed. It exits
+with pytest's status; arguments are passed to pytest.
+
+To run it every night on the storage server, as the user that has the
+repository checked out (with rig.toml and seed.yml filled in):
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp nightly/whap-e2e.service nightly/whap-e2e.timer ~/.config/systemd/user/
+# edit WHAP_REPO in whap-e2e.service if the checkout is not ~/WhaP
+systemctl --user daemon-reload
+systemctl --user enable --now whap-e2e.timer
+sudo loginctl enable-linger "$USER"     # run while nobody is logged in
+```
+
+The timer fires at 01:17 and catches up on a missed night. A run is a
+`oneshot` service, so `systemctl --user status whap-e2e` shows the last
+result and `journalctl --user -u whap-e2e` its one-line summary. If a run
+leaves containers behind, the next one stops at reset and says so; that is
+deliberate, since dropping their records would orphan them on the compute
+server. Add an `OnFailure=` unit if you want to be told by mail.
 
 ## LDAP directory
 

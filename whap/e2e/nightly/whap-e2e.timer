@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the WhaP end-to-end tests every night
+
+[Timer]
+OnCalendar=*-*-* 01:17
+# Catch up on a run missed while the machine was off.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

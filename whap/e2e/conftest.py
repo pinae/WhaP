@@ -7,6 +7,7 @@ the browser as a person would, checking the storage server's filesystem where
 a person would look there.
 """
 import os
+from contextlib import ExitStack
 from collections.abc import Hashable
 import secrets
 from dataclasses import dataclass
@@ -16,15 +17,18 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from evidence import Recorder, container_evidence, slug
 from pages import LoginPage
 from rig import rig_for
 
 HERE = Path(__file__).resolve().parent
+RECORDER = pytest.StashKey[Recorder]()
 
 
 def pytest_addoption(parser):
     parser.addoption("--rig", default=os.environ.get("WHAP_E2E_RIG", str(HERE / "rig.toml")),
-                     help="Rig description (default: rig.toml next to this file, or $WHAP_E2E_RIG).")
+                     help="Rig description (default: rig.toml next to this file, or $WHAP_E2E_RIG). "
+                          "Write --rig=PATH: pytest takes a bare path for a test path.")
     parser.addoption("--force-reset", action="store_true",
                      help="Pass --force to e2e-reset: drop leftover container records of the test users "
                           "even though the containers may still exist on a compute server.")
@@ -58,6 +62,36 @@ def pytest_collection_modifyitems(items):
         return phase, case_index, item.function.__code__.co_firstlineno
 
     items.sort(key=position)
+
+
+# --- What a failure leaves behind ------------------------------------------------
+
+def pytest_configure(config):
+    config.stash[RECORDER] = Recorder(Path(config.getoption("--output")))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """On failure: keep the traces of the browser contexts the test used, and
+    attach what is known about its container (see evidence.py)."""
+    report = yield
+    if report.failed:
+        item.config.stash[RECORDER].test_failed(item)
+        seen = set()
+        for value in getattr(item, "funcargs", {}).values():
+            # The container fixtures' values: Provisioned, Started.
+            if hasattr(value, "card") and hasattr(value, "page") and id(value) not in seen:
+                seen.add(id(value))
+                out_dir = Path(item.config.getoption("--output")) / slug(item.nodeid)
+                for title, text in container_evidence(value.page, value.card.id, rig_for(item.config), out_dir):
+                    report.sections.append((f"whap: {title}", text))
+    return report
+
+
+@pytest.fixture(scope="session")
+def recorder(pytestconfig):
+    """Opens traced browser contexts: ``with recorder.context(browser, args, name=..., owner=...)``."""
+    return pytestconfig.stash[RECORDER]
 
 
 # --- The rig ------------------------------------------------------------------
@@ -109,23 +143,20 @@ def browser_context_args(browser_context_args, rig):
 
 
 @pytest.fixture
-def login(browser, browser_context_args, rig):
+def login(browser, browser_context_args, rig, recorder, request):
     """login("alice") -> a UserPanel in a fresh browser context, signed in through the form.
 
     Each call gets its own context, so alice and bob can be signed in at once
-    without sharing cookies.
+    without sharing cookies. Each is traced, and the trace kept if the test fails.
     """
-    contexts = []
+    with ExitStack() as contexts:
+        def _login(who):
+            user = rig.users[who]
+            context = contexts.enter_context(recorder.context(
+                browser, browser_context_args, name=f"{request.node.nodeid}-{who}", owner="login"))
+            return LoginPage(context.new_page()).open().login(user.uid, user.password)
 
-    def _login(who):
-        user = rig.users[who]
-        context = browser.new_context(**browser_context_args)
-        contexts.append(context)
-        return LoginPage(context.new_page()).open().login(user.uid, user.password)
-
-    yield _login
-    for context in contexts:
-        context.close()
+        yield _login
 
 
 # --- Credentials --------------------------------------------------------------

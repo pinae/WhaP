@@ -58,7 +58,7 @@ def test_user_creates_a_project_and_the_worker_makes_its_directory(login, rig, r
 
 
 def test_shared_project_and_dataset_are_offered_as_volumes(login, rig, run_id):
-    alice, bob = rig.users["alice"], rig.users["bob"]
+    alice = rig.users["alice"]
     name = f"shared-{run_id}"
     bobs_projects = login("bob").projects()
     bobs_projects.create(name)

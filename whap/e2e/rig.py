@@ -1,4 +1,5 @@
 """The test rig as rig.toml describes it, and the roles the container tests cover."""
+import shlex
 import subprocess
 import time
 import tomllib
@@ -35,7 +36,7 @@ class ContainerSettings:
 
 
 class Rig:
-    """What rig.toml describes, plus the commands to reach the storage server."""
+    """What rig.toml describes, plus the commands to reach the storage and compute servers."""
 
     def __init__(self, path):
         path = Path(path)
@@ -54,6 +55,8 @@ class Rig:
         except KeyError as e:
             pytest.exit(f"{path} is missing {e}; see rig.example.toml.", returncode=4)
         self.browser = data.get("browser", {})
+        # Optional: only for collecting `docker logs` when a container test fails.
+        self.compute_shell = list(data.get("compute", {}).get("shell", []))
         container, torch = data.get("container", {}), data.get("torch", {})
         self.container = ContainerSettings(
             image=container.get("image", "worker_local_ubuntu2510_ssh"),
@@ -77,6 +80,15 @@ class Rig:
             raise AssertionError(f"`{' '.join(command)}` on the storage server failed "
                                  f"({result.returncode}):\n{result.stdout}{result.stderr}")
         return result
+
+    def on_compute(self, *command):
+        """Run a command on the compute server; return the completed process, whatever its exit status.
+
+        The command goes to ``[compute] shell`` as one quoted command line,
+        as ssh expects, so arguments with spaces survive.
+        """
+        return subprocess.run([*self.compute_shell, shlex.join(command)], capture_output=True, text=True,
+                              timeout=60)
 
     def flask(self, *args, input=None, check=True):
         """Run a backend `flask` command on the storage server."""

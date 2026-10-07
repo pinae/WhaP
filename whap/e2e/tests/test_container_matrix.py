@@ -20,6 +20,7 @@ another, each deleting its container before the next starts. One more test
 needs no case: the form refusing a container with neither key nor password.
 """
 import secrets
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import paramiko
@@ -108,35 +109,37 @@ def pytest_generate_tests(metafunc):
 
 # --- What every case needs -------------------------------------------------------
 
-def signed_in(browser, browser_context_args, rig, who):
-    context = browser.new_context(**browser_context_args)
-    user = rig.users[who]
-    return context, LoginPage(context.new_page()).open().login(user.uid, user.password)
+@contextmanager
+def signed_in(recorder, browser, browser_context_args, rig, who, *, name, owner):
+    """A UserPanel for ``who`` in a traced browser context of its own (see evidence.py)."""
+    with recorder.context(browser, browser_context_args, name=name, owner=owner) as context:
+        user = rig.users[who]
+        yield LoginPage(context.new_page()).open().login(user.uid, user.password)
 
 
 @pytest.fixture(scope="module")
-def alice_key(browser, browser_context_args, rig, ssh_keypair, run_id):
+def alice_key(browser, browser_context_args, rig, recorder, ssh_keypair, run_id):
     """The name of alice's SSH key, added once for every case."""
-    context, panel = signed_in(browser, browser_context_args, rig, "alice")
     name = f"e2e-matrix-{run_id}"
-    panel.ssh_keys().add(name, ssh_keypair.public_key)
-    context.close()
+    with signed_in(recorder, browser, browser_context_args, rig, "alice", name="matrix-alice-key",
+                   owner="alice_key") as panel:
+        panel.ssh_keys().add(name, ssh_keypair.public_key)
     return name
 
 
 @pytest.fixture(scope="module")
-def bobs_shares(browser, browser_context_args, rig):
+def bobs_shares(browser, browser_context_args, rig, recorder):
     """Bob's projects shared with alice, by kind: the volume label alice sees for each."""
-    context, panel = signed_in(browser, browser_context_args, rig, "bob")
-    projects = panel.projects()
     labels = {}
-    for kind, name in BOB_SHARES.items():
-        writable = kind == "share-rw"
-        projects.create(name)
-        projects.share(name, rig.users["alice"].prefixed, writable=writable)
-        rig.owner_of(rig.project_dir("bob", name))  # the worker has made the directory
-        labels[kind] = f"Shared: {name} ({'rw' if writable else 'ro'})"
-    context.close()
+    with signed_in(recorder, browser, browser_context_args, rig, "bob", name="matrix-bobs-shares",
+                   owner="bobs_shares") as panel:
+        projects = panel.projects()
+        for kind, name in BOB_SHARES.items():
+            writable = kind == "share-rw"
+            projects.create(name)
+            projects.share(name, rig.users["alice"].prefixed, writable=writable)
+            rig.owner_of(rig.project_dir("bob", name))  # the worker has made the directory
+            labels[kind] = f"Shared: {name} ({'rw' if writable else 'ro'})"
     return labels
 
 
@@ -152,28 +155,28 @@ class Started:
 
 
 @pytest.fixture(scope="module")
-def started(case, browser, browser_context_args, rig, alice_key, bobs_shares):
+def started(case, browser, browser_context_args, rig, recorder, alice_key, bobs_shares):
     """Start the case's container through the form and wait for it to settle. Asserts nothing."""
-    context, panel = signed_in(browser, browser_context_args, rig, "alice")
-    card = None
-    try:
-        panel.projects().create(case.project)
-        labels = {kind: DATASET if kind == "dataset" else bobs_shares[kind] for kind in case.volumes}
-        password = secrets.token_urlsafe(12) if case.password else None
+    with signed_in(recorder, browser, browser_context_args, rig, "alice", name=f"matrix-{case.id}",
+                   owner="started") as panel:
+        card = None
+        try:
+            panel.projects().create(case.project)
+            labels = {kind: DATASET if kind == "dataset" else bobs_shares[kind] for kind in case.volumes}
+            password = secrets.token_urlsafe(12) if case.password else None
 
-        form = panel.create_container()
-        card = form.start(project=case.project, image=case.role, ssh_key=alice_key if case.key else None,
-                          password=password, server=rig.container.server,
-                          gpus=[rig.container.gpu] if case.gpu else (), volumes=labels.values())
-        run = Started(case, panel.page, card, password,
-                      mounts={kind: form.mount_paths[label] for kind, label in labels.items()})
-        run.final_status = wait_until_settled(card, rig.container.start_timeout)
-        run.log_text = card.log_text()
-        yield run
-    finally:
-        if card:
-            delete_container(panel.page, card.id, rig.container.delete_timeout)
-        context.close()
+            form = panel.create_container()
+            card = form.start(project=case.project, image=case.role, ssh_key=alice_key if case.key else None,
+                              password=password, server=rig.container.server,
+                              gpus=[rig.container.gpu] if case.gpu else (), volumes=labels.values())
+            run = Started(case, panel.page, card, password,
+                          mounts={kind: form.mount_paths[label] for kind, label in labels.items()})
+            run.final_status = wait_until_settled(card, rig.container.start_timeout)
+            run.log_text = card.log_text()
+            yield run
+        finally:
+            if card:
+                delete_container(panel.page, card.id, rig.container.delete_timeout)
 
 
 @pytest.fixture(scope="module")
