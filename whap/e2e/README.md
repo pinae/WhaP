@@ -13,6 +13,8 @@ The storage server is the natural place.
 
 ## Running the tests
 
+First time on victor and tycho? Follow [RUNNING-ON-THE-RIG.md](RUNNING-ON-THE-RIG.md).
+
 Deploy the rig with the fixtures enabled (below), then, in this directory:
 
 ```bash

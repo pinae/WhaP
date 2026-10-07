@@ -1,0 +1,177 @@
+# Running the end-to-end tests on victor and tycho
+
+A checklist for the first run. The background to every step is in
+[README.md](README.md); this is just the order to do things in.
+
+**victor** is the storage server: it runs WhaP and, from now on, the tests.
+**tycho** is the compute server with the RTX 2070 Super. The tests run on
+victor because containers get their own address on tycho's LAN (macvlan), and
+tycho itself cannot reach them.
+
+> **This turns victor's WhaP into a test deployment.** Enabling the fixtures
+> points WhaP at a throwaway LDAP directory, and every run deletes the test
+> users' projects. Never do this to the production instance.
+
+## 1. Deploy the test branch with the fixtures on
+
+Everything the tests need is on the branch `claude/repo-structure-review-glhxab`,
+not yet on `main`. In your private config repository:
+
+```bash
+git -C WhaP fetch origin claude/repo-structure-review-glhxab
+git -C WhaP checkout claude/repo-structure-review-glhxab
+```
+
+In victor's host_vars, switch on the fixtures and point WhaP's LDAP at the test
+directory. Pick four passwords:
+
+```yaml
+whap:
+  # ...
+  e2e:
+    enabled: true
+    ldap_admin_password: "..."
+    alice_password: "..."      # goes into rig.toml later
+    bob_password: "..."        # goes into rig.toml later
+
+ldap:
+  uri: "ldap://e2e-ldap"
+  base:
+    dn: "ou=people,dc=whap,dc=test"
+  binduser:
+    dn: "cn=whap-bind,dc=whap,dc=test"
+    password: "..."
+  user_object_class: "inetOrgPerson"
+```
+
+Then deploy both machines. tycho gets the new worker images (python3-venv,
+tmux) and role changes:
+
+```bash
+ansible-playbook plays/whap.yml
+```
+
+Check that it worked:
+
+- `docker ps` on victor lists `e2e-ldap` next to `whap-backend` and `whap-worker`.
+- `docker exec whap-backend flask --help` lists `e2e-seed` and `e2e-reset`.
+- On tycho, Docker can use the GPU:
+  `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
+- If you use the registry for the 2510 roles, its images are pushed.
+  Otherwise tycho has nothing to pull.
+
+## 2. Prepare victor to run the tests
+
+On victor, as the user who will run them, clone the same branch somewhere
+outside the deployment. The tests must match what is deployed:
+
+```bash
+git clone -b claude/repo-structure-review-glhxab https://github.com/pinae/WhaP.git ~/WhaP
+cd ~/WhaP/whap/e2e
+curl -LsSf https://astral.sh/uv/install.sh | sh     # if uv is missing
+uv sync
+uv run playwright install --with-deps chromium     # asks for sudo for the system libraries
+```
+
+That user also needs:
+
+- **docker access on victor** (the `docker` group), for `docker exec whap-backend flask ...`.
+- **SSH to tycho with a key, as a user in tycho's `docker` group.** This is
+  optional: it attaches `docker logs` to failures. Test it with
+  `ssh tycho docker ps`.
+
+## 3. Describe the rig
+
+```bash
+cp rig.example.toml rig.toml
+cp seed.example.yml seed.yml
+```
+
+In **seed.yml**:
+
+- `servers`: `tycho` as Ansible's inventory names it, `gpu_count: 1`.
+- `network`: tycho's LAN subnet, i.e. the network on its `ethernet_device`.
+  The name must not end in `public`.
+- `addresses`: **four free IPs on that subnet**, nothing else may use them.
+  Keep the example's locally administered MACs.
+
+In **rig.toml**:
+
+- `[whap] url`: WhaP's address as a browser on victor reaches it.
+- `[users.alice]` and `[users.bob]`: the passwords from step 1.
+- `[storage]`:
+  - `shell = []`, since the tests run on victor.
+  - `backend_cli` as in the example.
+  - `projects_dir` = `whap.projects_dir` from the host_vars, e.g. `/data/projects`.
+- `[compute] shell = ["ssh", "tycho"]`, if you set up SSH in step 2.
+- `[container]`:
+  - `gpu_name = "2070"`
+  - `start_timeout = 3600` for the first run, because every image builds once.
+- `[torch] index_url`: a CUDA build tycho's driver supports.
+  `nvidia-smi` on tycho shows "CUDA Version: 12.x"; e.g. `https://download.pytorch.org/whl/cu126`.
+
+## 4. Run it, cheapest first
+
+Each step only makes sense once the previous one passes.
+
+```bash
+cd ~/WhaP/whap/e2e
+uv run pytest tests/test_identity.py            # under a minute: LDAP, keys, projects, shares
+uv run pytest tests/test_container_lifecycle.py  # one container end to end; first run builds an image and installs torch
+uv run pytest                                   # everything: ~10 containers, roughly 1-2 h once images exist
+uv run pytest --matrix full                     # later: auth and volume cases on every role as well
+```
+
+Every run starts by resetting and re-seeding the rig. If a run was interrupted
+and left containers behind, the next one stops and lists them. Delete them in
+WhaP, or add `--force-reset` if you have already removed them on tycho.
+
+Use `--rig=PATH`, with the `=`, if rig.toml is not next to the tests. Add
+`--headed` (from a desktop session) to watch the browser.
+
+## 5. When something fails
+
+Everything about a failure is in `test-results/`:
+
+- `trace.zip`: open it with `uv run playwright show-trace test-results/<dir>/trace.zip`
+  to step through what the browser saw.
+- `job.log`: the container's whole Ansible log.
+- `docker.log`: `docker inspect` and `docker logs` from tycho.
+- `screenshot.png`
+
+What to suspect first:
+
+| Symptom | Likely cause |
+|---|---|
+| Login tests fail | `ldap` block in host_vars not pointing at `ldap://e2e-ldap`, or wrong passwords in rig.toml |
+| Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
+| Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |
+| Volume tests fail with "no such file" | a dataset or shared project path does not exist on tycho under the same path (NFS mount) |
+| PyTorch test fails on CUDA | `[torch] index_url` does not match the driver |
+| `worker_synced_nvidia_pytorch1906` "image does what it is for" fails | expected: its conda Python is probably not on PATH in SSH sessions; please send me the output |
+
+## 6. Nightly runs (optional, once a manual run is green)
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp nightly/whap-e2e.service nightly/whap-e2e.timer ~/.config/systemd/user/
+# set WHAP_REPO in whap-e2e.service if the checkout is not ~/WhaP
+systemctl --user daemon-reload
+systemctl --user enable --now whap-e2e.timer
+sudo loginctl enable-linger "$USER"
+```
+
+Results land in `~/whap-e2e-results/<date>/`, and `latest` points at the
+newest. `systemctl --user status whap-e2e` shows whether the last night passed.
+
+## 7. Afterwards
+
+To turn victor back into a normal deployment:
+
+1. Set `e2e.enabled: false`.
+2. Restore the real `ldap` block.
+3. Redeploy.
+
+Then delete the e2e projects' directories under `projects_dir/e2e-*` on
+victor, and `/home/e2e-*` on tycho, which holds the local roles' project
+homes and the torch virtualenv.
