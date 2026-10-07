@@ -93,8 +93,8 @@ def handle_join_log_room(data):
         current_app.logger.warning("join_log_room event received without container_id.")
         return
 
-    # Ownership check: replayed logs contain the generated container password and
-    # SSH material, so only the owner (or an admin) may join a container's room.
+    # Ownership check: logs show a container's addresses, paths and public key
+    # (passwords are redacted), so only the owner (or an admin) may join its room.
     try:
         container = db.session.get(ContainerInstance, int(container_id_str))
     except (TypeError, ValueError):

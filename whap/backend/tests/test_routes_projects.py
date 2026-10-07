@@ -182,3 +182,33 @@ def test_a_writable_share_reapplies_the_mode(client, db, make_local_user, make_p
                       json={"shares": [{"user_uid": "ldap:someone", "is_writable": writable}]})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     assert len(_queued_modes(db)) == queued
+
+
+# --- Admin-made projects belong to their owner, on disk too -----------------
+
+def _queued_owner(db, operation):
+    import json
+    from app.models import FileOperationJob
+    job = db.session.scalar(db.select(FileOperationJob).filter_by(operation=operation))
+    return json.loads(job.payload)["user_identifier"]
+
+
+@pytest.mark.parametrize("owner", ["ldap", "local"])
+def test_an_admin_created_project_directory_belongs_to_its_owner(admin_client, db, make_local_user, owner):
+    """The directory was queued as the admin, so it ended up owned by the admin."""
+    if owner == "ldap":
+        body, expected = {"owner_uid": "e2e-alice"}, "ldap:e2e-alice"
+    else:
+        user = make_local_user(username="owned_by_admin")
+        body, expected = {"owner_local_user_id": user.id}, f"local:{user.id}"
+    resp = admin_client.post("/api/admin/projects", json={"name": "given", **body})
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    assert _queued_owner(db, "create_directory") == expected
+
+
+def test_reassigning_a_project_moves_its_directory_to_the_new_owner(admin_client, db, make_local_user,
+                                                                    make_project):
+    project = make_project(owner=make_local_user(username="first_owner"), name="handed_on")
+    resp = admin_client.put(f"/api/admin/projects/{project.id}", json={"owner_uid": "e2e-bob"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert _queued_owner(db, "rename_directory") == "ldap:e2e-bob"

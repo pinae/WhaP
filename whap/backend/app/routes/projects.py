@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from pathlib import Path
 from ..models import Project, ProjectShare, LocalUser, Group
+from ..user_management import LdapUserWrapper, LocalUserWrapper
 from ..services.local_file_service import PROJECT_DIR_MODE
 from ..services.task_queue_service import enqueue_rename_directory, enqueue_create_directory, enqueue_delete_directory
 from .. import admin_required
@@ -9,6 +10,17 @@ from .. import db
 import re
 
 proj_bp = Blueprint('projects', __name__)
+
+
+def _directory_owner(project):
+    """Whom a project's directory belongs to: its owner, not the admin who
+    created or reassigned it. A group project's directory goes to whoever acts
+    on it, as when a member creates one."""
+    if project.owner_local_user_id:
+        return LocalUserWrapper(db.session.get(LocalUser, project.owner_local_user_id))
+    if project.owner_uid:
+        return LdapUserWrapper({'uid': project.owner_uid.removeprefix('ldap:')})
+    return current_user
 
 
 def _project_name_taken(name, owner_filter, exclude_id=None):
@@ -294,7 +306,7 @@ def admin_create_project():
         # --- Enqueue a file operation job to create the directory ---
         try:
             project_path = get_project_fs_path(new_project)
-            enqueue_create_directory(project_path, current_user, mode=PROJECT_DIR_MODE)
+            enqueue_create_directory(project_path, _directory_owner(new_project), mode=PROJECT_DIR_MODE)
             current_app.logger.info(
                 f"User {current_user.get_id()} created project '{project_name}' and enqueued directory creation job.")
         except Exception as file_op_err:
@@ -355,7 +367,7 @@ def admin_update_project(project_id):
     new_path = get_project_fs_path(project)
     if old_path != new_path:
         try:
-            enqueue_rename_directory(old_path, new_path, current_user)
+            enqueue_rename_directory(old_path, new_path, _directory_owner(project))
             current_app.logger.info(f"Admin renamed project path: {old_path} -> {new_path}")
         except Exception as file_op_err:
             current_app.logger.error(f"Failed to enqueue rename: {file_op_err}", exc_info=True)
