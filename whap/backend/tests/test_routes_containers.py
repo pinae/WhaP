@@ -176,7 +176,7 @@ def test_prolong_null_ttl_sets_value_four_weeks_out(client, db, make_local_user,
     owner = make_local_user(username="owner_ttl")
     project = make_project(owner=owner)
     server = make_server()
-    container = make_container(owner=owner, project=project, server=server)
+    container = make_container(owner=owner, project=project, server=server, image_name="worker_local_ubuntu2510_ssh")
     assert container.ttl_date is None
     login_as(owner)
     resp = client.post(f"/api/containers/{container.id}/prolong")

@@ -12,6 +12,21 @@ import json
 import os
 import re
 
+# Local containers keep their data on the compute server's SSD, where a ttl
+# daemon deletes a project once the date in its ttl.txt has passed -- or when
+# the file is missing, the date invalid or too far ahead. Synced containers
+# keep their data on the storage server and have no expiry.
+MAX_TTL = timedelta(days=366)  # the form offers at most 12 months
+
+
+def is_local_image(image_name):
+    return bool(image_name) and image_name.startswith('worker_local_')
+
+
+def _aware(dt):
+    """SQLite hands timestamps back naive; they are stored as UTC."""
+    return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
 cont_bp = Blueprint('containers', __name__)
 
 
@@ -76,9 +91,6 @@ def queue_action_job(container, action, optimistic_status):
 
 def queue_prolong_ttl_job(container, new_ttl_date):
     """Helper to create an AnsibleJob for a prolong action."""
-    if container.status not in ['RUNNING', 'STOPPED', 'PAUSED']:
-        return jsonify({"message": f"Container ttl cannot be prolonged in its current state ({container.status})"}), 409
-
     extravars_data = {'ttl_date': new_ttl_date.strftime('%Y-%m-%d')}
     new_job = AnsibleJob(
         container_instance_id=container.id,
@@ -172,12 +184,21 @@ def create_container():
         if not ssh_key:
             return jsonify({"message": "Selected SSH Key not found or invalid"}), 404
 
+    # Only local containers expire, and they must: without a valid date in
+    # ttl.txt the ttl daemon deletes the project. The form enforces the same.
     ttl_date = None
-    if ttl_date_str:
+    if is_local_image(image_name):
+        if not ttl_date_str:
+            return jsonify({"message": "A local container needs an auto-deletion (TTL) date."}), 400
         try:
-            ttl_date = datetime.fromisoformat(ttl_date_str)
+            ttl_date = _aware(datetime.fromisoformat(ttl_date_str))
         except (ValueError, TypeError):
             return jsonify({"message": "Invalid TTL date format. Please use YYYY-MM-DD."}), 400
+        now = datetime.now(timezone.utc)
+        if ttl_date.date() < now.date():
+            return jsonify({"message": "The TTL date is in the past."}), 400
+        if ttl_date > now + MAX_TTL:
+            return jsonify({"message": "The TTL date can be at most 12 months ahead."}), 400
 
     # --- CPU Limit Validation ---
     cpu_limit = None
@@ -386,13 +407,22 @@ def stop_container(id_no):
 def prolong_container(id_no):
     container, error_response = check_container_permission(id_no)
     if error_response: return error_response
+    if not is_local_image(container.image_name):
+        return jsonify({"message": "Only local containers expire; this one keeps its data on the storage "
+                                   "server."}), 400
+    # Checked before the date changes: a refused prolong must not move it.
+    if container.status not in ['RUNNING', 'STOPPED', 'PAUSED']:
+        return jsonify({"message": f"Container ttl cannot be prolonged in its current state ({container.status})"}), 409
 
+    now = datetime.now(timezone.utc)
+    new_ttl = (_aware(container.ttl_date) or now) + timedelta(weeks=4)
+    if new_ttl > now + MAX_TTL:
+        # The ttl daemon treats a date too far ahead as invalid and deletes the project.
+        return jsonify({"message": f"The TTL can be at most 12 months ahead; it already runs until "
+                                   f"{container.ttl_date:%Y-%m-%d}."}), 400
     try:
-        current_ttl = container.ttl_date or datetime.now(timezone.utc)
-        new_ttl = current_ttl + timedelta(weeks=4)
         container.ttl_date = new_ttl
         db.session.commit()
-
         # Now queue the Ansible job to update the file on the host
         return queue_prolong_ttl_job(container, new_ttl)
 

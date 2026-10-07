@@ -140,7 +140,7 @@ def execute_ansible_job(job, event_callback):
             container.status = 'ERROR'
             job.log += "\\nFATAL: User could not be resolved. This might be an LDAP connectivity issue."
             db.session.commit()
-            return 'failed', job.log, 'failed', {}
+            return failure_status, job.log, 'failed', {}
 
         ansible_user_params = container.user.get_ansible_user_params()
         if not all(ansible_user_params.values()):
@@ -150,7 +150,7 @@ def execute_ansible_job(job, event_callback):
             container.status = 'ERROR'
             job.log += "\\nFATAL: Incomplete user parameters from user object."
             db.session.commit()
-            return 'failed', job.log, 'failed', {}
+            return failure_status, job.log, 'failed', {}
 
         # --- Load extravars for password and additional volumes ---
         password = ''.join(random.SystemRandom().choice(
@@ -307,19 +307,21 @@ def execute_ansible_job(job, event_callback):
             app.logger.error(
                 f"[Ansible Job {job.id}] TTL date not found in extravars for prolong action. Aborting.")
             # Manually fail the job without running Ansible
-            return 'failed', "Internal Error: TTL date was missing.", 'failed', {}
+            return failure_status, "Internal Error: TTL date was missing.", 'failed', {}
 
-        # Define a file path inside the container's host directory to store the TTL
-        ttl_file_path = os.path.join(container.directory_path, 'ttl_date.txt')
-
+        # The file the ttl daemon on the compute server reads, which create
+        # writes too (common_tasks/local_directory.yml): ttl.txt in the local
+        # project home. This used to write ttl_date.txt into the compose
+        # directory, which nothing reads, so prolonging never kept any data.
         ansible_user_params = job.container.user.get_ansible_user_params()
+        ttl_file_path = f"/home/{container.user.username}/{container.project.name}/ttl.txt"
 
         playbook_content = [{
             'hosts': server.hostname, 'become': True, 'gather_facts': False, 'tasks': [
                 {'name': f'Update TTL file for {container.container_name}',
                  'ansible.builtin.copy': {
-                     'content': f'{ttl_date}\n',
-                     'dest': ttl_file_path,
+                     'content': quoted(ttl_date),  # as create writes it
+                     'dest': quoted(ttl_file_path),
                      'owner': str(ansible_user_params['user_id']),
                      'group': str(ansible_user_params['group_id']),
                      'mode': '0644'
@@ -362,10 +364,10 @@ def execute_ansible_job(job, event_callback):
     except Exception as e:
         app.logger.error(f"[Ansible Job {job.id}] Failed to write playbook: {e}")
         job.status = 'FAILED'
-        container.status = 'ERROR'
+        container.status = failure_status
         job.log += f"\nERROR: Failed to create Ansible playbook file.\n{e}"
         db.session.commit()
-        return 'ERROR', job.log, 'failed', {}
+        return failure_status, job.log, 'failed', {}
 
     # --- Ansible Runner Configuration ---
     private_data_dir = runner_path(app, f"job_{job.id}")
@@ -380,7 +382,7 @@ def execute_ansible_job(job, event_callback):
         app.logger.info(f"[Ansible Job {job.id}] Wrote dynamic inventory to {hosts_file_path}")
     except IOError as e:
         app.logger.error(f"[Ansible Job {job.id}] FAILED to write inventory file: {e}")
-        return 'failed', f'Failed to write inventory: {e}', 'failed', {}
+        return failure_status, f'Failed to write inventory: {e}', 'failed', {}
 
     runner_config = {
         'private_data_dir': private_data_dir,

@@ -402,7 +402,7 @@ function ContainerForm({ onContainerCreated }) {
             sshKeyId: formData.sshKeyId || null,
             password: formData.password,
             cpuLimit: formData.cpuLimit,
-            ttlDate: formData.ttlDate,
+            ttlDate: ttlConfig.isRequired ? formData.ttlDate : null, // only local containers expire
             wants_public_ip: requestPublicIp,
             additional_volumes: volumesToSubmit,
         };

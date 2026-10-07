@@ -113,3 +113,24 @@ test('a project created with the + button is selected in the form', async () => 
     expect(screen.queryByTestId('project-modal-error')).not.toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/api/projects', { name: 'fresh', shares: [] });
 });
+
+
+test.each([
+    ['worker_local_ubuntu2510_ssh', true],
+    ['worker_synced_ubuntu2510_ssh', false],
+])('%s sends a TTL date: %s', async (image, sendsTtl) => {
+    // Synced containers do not expire; the form used to send its hidden default anyway.
+    api.post.mockResolvedValue({ data: { container: { id: 9 } } });
+    renderForm();
+    await waitFor(() => expect(screen.getByTestId('container-project-select')).not.toHaveAttribute('aria-disabled', 'true'));
+    fireEvent.click(openSelect('container-project-select').getByTestId('container-project-option-existing'));
+    fireEvent.click(openSelect('container-image-select').getByTestId(`container-image-option-${image}`));
+    fireEvent.change(screen.getByTestId('container-password'), { target: { value: 'pw' } });
+    await waitFor(() => expect(screen.getByTestId('container-server-select')).toHaveTextContent('tycho'));
+    fireEvent.click(screen.getByTestId('container-submit'));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/containers', expect.anything()));
+    const payload = api.post.mock.calls.find(([url]) => url === '/api/containers')[1];
+    if (sendsTtl) expect(payload.ttlDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    else expect(payload.ttlDate).toBeNull();
+});

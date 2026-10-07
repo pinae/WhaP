@@ -4,6 +4,8 @@ Only the form checked this. A request with neither was accepted, and
 ansible_service gave the container a random password nobody was told, so it
 could never be logged into.
 """
+from datetime import date, timedelta
+
 import pytest
 
 from app import socketio
@@ -20,7 +22,7 @@ def payload(app, db, make_local_user, make_project, make_server, make_network, m
     monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
     login_as(user)
     return {"projectId": make_project(owner=user, name="thesis").id, "serverId": server.id,
-            "imageName": "worker_local_ubuntu2510_ssh", "gpus": "none"}
+            "imageName": "worker_local_ubuntu2510_ssh", "gpus": "none", "ttlDate": (date.today() + timedelta(days=30)).isoformat()}
 
 
 @pytest.mark.parametrize("credentials", [{}, {"password": "", "sshKeyId": None}, {"password": None}])

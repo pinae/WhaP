@@ -12,6 +12,7 @@ every installed GPU and greys out those not in the server's allowed_gpus, which
 comes from the same permissions_service.allowed_gpus() the check uses.
 """
 import types
+from datetime import date, timedelta
 
 import pytest
 
@@ -59,7 +60,7 @@ def create_env(app, db, make_local_user, make_project, make_server, make_network
     monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
     login_as(user)
     return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh",
-            "password": "pw"}
+            "password": "pw", "ttlDate": (date.today() + timedelta(days=30)).isoformat()}
 
 
 @pytest.mark.parametrize("payload_gpus", [None, "none", ""])
@@ -120,7 +121,7 @@ def partial_env(app, db, make_local_user, make_project, make_server, make_networ
     monkeypatch.setattr(socketio, "emit", lambda *a, **k: None)
     login_as(user)
     return {"projectId": project.id, "serverId": server.id, "imageName": "worker_local_ubuntu2510_ssh",
-            "password": "pw"}
+            "password": "pw", "ttlDate": (date.today() + timedelta(days=30)).isoformat()}
 
 
 @pytest.mark.parametrize("gpus, status", [("1", 201), ("none", 201), ("0", 403), ("0,1", 403)])

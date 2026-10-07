@@ -63,7 +63,7 @@ if __name__ == '__main__':
         # Optionally, try to notify the main server of the failure
         try:
             send_update(int(sys.argv[1]),
-                        {'final_status': 'failed', 'final_log': f'Worker script failed unexpectedly: {e}'})
+                        {'final_status': 'ERROR', 'final_log': f'Worker script failed unexpectedly: {e}'})
         except:
             pass  # Ignore if notification fails
         sys.exit(1)

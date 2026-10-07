@@ -99,3 +99,20 @@ test('a confirmed deletion removes the card instead of re-fetching', async () =>
     expect(onDelete).toHaveBeenCalledWith(42);
     expect(api.get).not.toHaveBeenCalled();
 });
+
+test.each([
+    ['a local container that is running', { status: 'RUNNING' }, true],
+    ['a local container that is stopped', { status: 'STOPPED' }, true],
+    ['a local container that is starting', { status: 'STARTING' }, false],
+    ['a local container in error', { status: 'ERROR' }, false],
+    ['a synced container, even with a date', { status: 'RUNNING', image: 'worker_synced_ubuntu2510_ssh' }, false],
+])('prolong is offered for %s: %s', (_label, overrides, offered) => {
+    renderCard({ ...base, ttl_date: '2027-01-06T00:00:00Z', ...overrides });
+    const prolong = screen.getByTestId('container-action-prolong');
+    if (offered) expect(prolong).toBeEnabled(); else expect(prolong).toBeDisabled();
+});
+
+test('the expiry date is exposed for end-to-end tests', () => {
+    renderCard({ ...base, status: 'RUNNING', ttl_date: '2027-01-06T00:00:00Z' });
+    expect(screen.getByTestId('container-ttl')).toHaveAttribute('data-ttl', '2027-01-06T00:00:00Z');
+});

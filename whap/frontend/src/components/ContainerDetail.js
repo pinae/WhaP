@@ -216,7 +216,9 @@ function ContainerDetails({container, onUpdate, onDelete}) {
     const canResume = ['PAUSED', 'STOPPED'].includes(container.status);
     const canStop = ['RUNNING', 'PAUSED'].includes(container.status);
     const canDelete = !['DELETING', 'DELETED'].includes(container.status);
-    const canProlong = container.ttl_date && !['DELETING', 'DELETED', 'PENDING', 'STARTING'].includes(container.status);
+    // Only local containers expire (synced ones may still carry a date from before that was enforced).
+    const canProlong = container.ttl_date && container.image?.startsWith('worker_local_')
+        && ['RUNNING', 'STOPPED', 'PAUSED'].includes(container.status);
     const isAnyActionInProgress = loadingAction || isJobRunning;
 
     const getTtlColor = () => {
@@ -270,7 +272,8 @@ function ContainerDetails({container, onUpdate, onDelete}) {
                         On: {container.server} (GPUs: {container.gpus || 'N/A'})
                     </Typography>
                     {container.ttl_date && (
-                        <Typography variant="caption" display="block" sx={{mt: 0.5, color: getTtlColor()}}>
+                        <Typography variant="caption" display="block" sx={{mt: 0.5, color: getTtlColor()}}
+                                    data-testid="container-ttl" data-ttl={container.ttl_date}>
                             TTL Expires: {formatDate(container.ttl_date)}
                         </Typography>
                     )}
