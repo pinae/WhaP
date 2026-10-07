@@ -78,6 +78,12 @@ one test per point:
 - `nvidia-smi` sees exactly the requested GPU, by name
 - `nvtop` and `tmux` run, and a virtualenv can be made with pip in it
 - PyTorch multiplies a matrix on that GPU
+- pausing freezes it (SSH gets no answer) and resuming continues it, with its
+  processes still running
+- stopping takes it off the network and starting brings it back on the same
+  address, with the home directory kept and the processes gone
+- prolonging moves the expiry date four weeks and writes it to `~/ttl.txt`,
+  the file the ttl daemon on the compute server reads (local roles only)
 - deleting the container in the UI removes it and frees its address
 
 If the container doesn't reach RUNNING, that test fails with the tail of its

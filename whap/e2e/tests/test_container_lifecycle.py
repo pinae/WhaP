@@ -15,11 +15,12 @@ import re
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 import pytest
 from playwright.sync_api import expect
 
-from containers import broken_user_tools, delete_container, tail
+from containers import broken_user_tools, delete_container, tail, wait_until_settled
 from pages import LoginPage
 from pages.user_panel import ContainerCard
 from remote import ContainerShell
@@ -70,6 +71,7 @@ class Provisioned:
     replayed: str | None = None                      # the log pane right after the reload
     final_status: str = ""
     log_text: str = ""
+    address: str | None = None                       # remembered while the card shows none
 
     def api(self, path):
         return self.page.request.get(path)
@@ -230,6 +232,85 @@ def test_pytorch_computes_on_the_gpu(running, rig, ssh_keypair):
     assert result.exit_status == 0, str(result)
     version, cuda, device = result.stdout.strip().splitlines()[-1].split("|")
     assert rig.container.gpu_name in device, f"torch {version} (CUDA {cuda}) ran on {device!r}"
+
+
+# --- Pause, stop, resume, prolong -------------------------------------------------
+# In order, each starting from a running container and leaving one behind.
+
+SLEEPER = "sleep 86401"  # a process to look for; the odd length makes it ours
+
+
+def settle(run, rig, action):
+    """Press ``action`` on the card and return the status the job settles on."""
+    run.card.act(action)
+    return wait_until_settled(run.card, rig.container.start_timeout)
+
+
+def assert_running(run):
+    assert run.card.status == "RUNNING", f"an earlier lifecycle test left the container {run.card.status}"
+    run.address = run.card.ip()  # the card hides it while the container is stopped
+
+
+def unreachable(run, rig, within=15):
+    """True if SSH gets no answer: a paused container cannot reply, a stopped one is gone."""
+    try:
+        ContainerShell(run.address, rig.users["alice"].uid,
+                       password=run.password, connect_within=within).close()
+    except ConnectionError:
+        return True
+    return False
+
+
+def test_pausing_freezes_the_container_and_resuming_continues_it(running, rig, ssh_keypair):
+    assert_running(running)
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        assert sh.run(f"nohup {SLEEPER} >/dev/null 2>&1 &").exit_status == 0
+
+    assert settle(running, rig, "pause") == "PAUSED"
+    assert unreachable(running, rig), "a paused container still answered over SSH"
+
+    assert settle(running, rig, "resume") == "RUNNING"
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        survivor = sh.run(f"pgrep -f '{SLEEPER}'")
+    assert survivor.exit_status == 0, f"pausing and resuming lost a running process\n{survivor}"
+
+
+def test_stopping_and_starting_keeps_the_home_but_not_the_processes(running, rig, ssh_keypair, run_id):
+    assert_running(running)
+    marker = f"~/.e2e-stop-{run_id}"
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        assert sh.run(f"echo kept > {marker}; nohup {SLEEPER} >/dev/null 2>&1 &").exit_status == 0
+
+    assert settle(running, rig, "stop") == "STOPPED"
+    assert not running.card.has_ip(), "a stopped container's card still offers its address"
+    assert unreachable(running, rig), "a stopped container still answered over SSH"
+
+    assert settle(running, rig, "resume") == "RUNNING"
+    assert running.card.ip() == running.address, "the container came back on another address"
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        home = sh.run(f"cat {marker}")
+        sleeper = sh.run(f"pgrep -f '{SLEEPER}'")
+    assert home.stdout.strip() == "kept", f"the home directory did not survive a stop\n{home}"
+    assert sleeper.exit_status != 0, "a process survived stopping the container"
+
+
+def test_prolonging_moves_the_expiry_four_weeks_and_tells_the_compute_server(running, rig, ssh_keypair):
+    """The ttl daemon on the compute server reads ~/ttl.txt in the project's home, not WhaP's database."""
+    if not rig.container.image.startswith("worker_local_"):
+        pytest.skip("only local containers expire")
+    assert_running(running)
+    before = datetime.fromisoformat(running.card.ttl())
+
+    after = datetime.fromisoformat(running.card.prolong())
+
+    assert after - before == timedelta(weeks=4)
+    assert running.card.status == "RUNNING", "prolonging changed the container's state"
+    deadline = time.monotonic() + 120  # the file is written by an Ansible job
+    with shell(running, rig, key_path=ssh_keypair.private_key_path) as sh:
+        while (written := sh.run("cat ~/ttl.txt").stdout.strip()) != f"{after:%Y-%m-%d}" \
+                and time.monotonic() < deadline:
+            time.sleep(5)
+    assert written == f"{after:%Y-%m-%d}", f"~/ttl.txt says {written!r}, the card {after:%Y-%m-%d}"
 
 
 # --- And gone again --------------------------------------------------------------

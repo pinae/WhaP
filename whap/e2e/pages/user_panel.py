@@ -217,5 +217,30 @@ class ContainerCard:
     def ssh_command(self):
         return self.locator.get_by_test_id("container-ssh-command").inner_text().strip()
 
+    def has_ip(self):
+        return self.locator.get_by_test_id("container-ip").count() > 0
+
+    def ttl(self):
+        """The expiry date the card shows, as the ISO timestamp it carries; None if it shows none."""
+        ttl = self.locator.get_by_test_id("container-ttl")
+        return ttl.get_attribute("data-ttl") if ttl.count() else None
+
+    def act(self, action):
+        """Press pause, resume, stop or delete, and wait until the card shows the job has begun."""
+        before = self.status
+        button = self.locator.get_by_test_id(f"container-action-{action}")
+        expect(button).to_be_enabled()
+        button.click()
+        expect(self.locator).not_to_have_attribute("data-status", before)
+
+    def prolong(self):
+        """Press prolong and wait until the card shows the new expiry date (the status does not change)."""
+        before = self.ttl()
+        button = self.locator.get_by_test_id("container-action-prolong")
+        expect(button).to_be_enabled()
+        button.click()
+        expect(self.locator.get_by_test_id("container-ttl")).not_to_have_attribute("data-ttl", before or "")
+        return self.ttl()
+
     def delete(self):
         self.locator.get_by_test_id("container-action-delete").click()
