@@ -72,6 +72,10 @@ Check that it worked:
     deploy.
 - The backend logs no `ANSIBLE_RUNNER_DIR not configured` at start
   (`docker logs whap-backend | head`). That warning means an old image.
+- The backend answers:
+  `curl -s https://<your WhaP domain>/auth/session` prints `{"isLoggedIn":false,...}`
+  at once. If it hangs, or `docker ps` shows `whap-backend` restarting,
+  `docker logs whap-backend` names the configuration problem.
 - On tycho, Docker can use the GPU:
   `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
 - If you use the registry for the 2510 roles, its images are pushed.
@@ -161,6 +165,7 @@ What to suspect first:
 | Symptom | Likely cause |
 |---|---|
 | "No such command 'e2e-reset'", or the harness says the backend runs old code | `/docker/whap/WhaP` on victor is not on this branch, or the deploy did not rebuild `whap-backend`: see the checks in step 1 |
+| The run stops at once: "GET .../auth/session failed" (the browser shows only a spinner) | the backend is not serving: `docker logs whap-backend`, usually a FATAL configuration error |
 | Login tests fail | `ldap` block in host_vars not pointing at `ldap://e2e-ldap`, or wrong passwords in rig.toml |
 | Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
 | Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |

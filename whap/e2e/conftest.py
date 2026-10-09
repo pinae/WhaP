@@ -10,6 +10,9 @@ import os
 from contextlib import ExitStack
 from collections.abc import Hashable
 import secrets
+import ssl
+import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,9 +104,32 @@ def rig(pytestconfig):
     return rig_for(pytestconfig)
 
 
+def _whap_answers(rig, timeout=15):
+    """Ask WhaP for a session as the login page does first; return why it failed, or None.
+
+    When this request hangs, the page shows nothing but a spinner, and every
+    test fails the same unhelpful way.
+    """
+    context = ssl.create_default_context()
+    if rig.browser.get("ignore_https_errors"):
+        context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(f"{rig.url}/auth/session", timeout=timeout, context=context) as response:
+            body = response.read(200).decode(errors="replace")
+    except Exception as e:
+        return (f"GET {rig.url}/auth/session failed after {time.monotonic() - started:.0f}s: {e}. "
+                "The backend may be failing to start: see `docker logs whap-backend` on the storage server.")
+    if '"isLoggedIn"' not in body:
+        return f"GET {rig.url}/auth/session did not answer as WhaP's backend does: {body!r}"
+    return None
+
+
 @pytest.fixture(scope="session", autouse=True)
 def known_state(rig, pytestconfig):
     """Clear what earlier runs left behind and (re)seed the infrastructure, once per session."""
+    if (problem := _whap_answers(rig)) is not None:
+        pytest.exit(problem, returncode=3)
     if not rig.seed_spec.exists():
         pytest.exit(f"Seed spec {rig.seed_spec} not found; copy seed.example.yml and fill it in.", returncode=4)
     spec = rig.seed_spec.read_text()

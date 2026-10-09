@@ -50,6 +50,9 @@ services:
         USER_ID: "{{ service_cfg.uid }}"
         GROUP_ID: "{{ service_cfg.gid }}"
     container_name: whap-migrate
+    labels:
+      # The image's ID: a rebuilt image changes the service, so compose recreates it.
+      whap.image-id: "{{ whap_image_ids.backend }}"
     env_file: "{{ service_cfg.directory }}/.env.prod"
     environment:
       FLASK_APP: "app:create_app"
@@ -68,6 +71,9 @@ services:
         USER_ID: "{{ service_cfg.uid }}"
         GROUP_ID: "{{ service_cfg.gid }}"
     container_name: whap-backend
+    labels:
+      # The image's ID: a rebuilt image changes the service, so compose recreates it.
+      whap.image-id: "{{ whap_image_ids.backend }}"
     env_file: "{{ service_cfg.directory }}/.env.prod"
     volumes:
       # Mount the ansible project directory from the host into the container
@@ -110,6 +116,9 @@ services:
         USER_ID: "{{ service_cfg.uid }}"
         GROUP_ID: "{{ service_cfg.gid }}"
     container_name: whap-worker
+    labels:
+      # The image's ID: a rebuilt image changes the service, so compose recreates it.
+      whap.image-id: "{{ whap_image_ids.backend }}"
     user: "0:0"
     env_file: "{{ service_cfg.directory }}/.env.prod"
     volumes:
@@ -157,6 +166,7 @@ services:
     restart: unless-stopped
     labels:
       <<: *base_labels
+      whap.image-id: "{{ whap_image_ids.nginx }}"
 {% if service_cfg.separate_traefik_network.use | default(true) %}
       traefik.docker.network: "{{ service_cfg.separate_traefik_network.name }}"
 {% endif %}
@@ -175,6 +185,8 @@ services:
     build:
       context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/e2e/ldap"
     container_name: whap-e2e-ldap
+    labels:
+      whap.image-id: "{{ whap_image_ids['e2e-ldap'] }}"
     environment:
       LDAP_ADMIN_PASSWORD: "{{ service_cfg.e2e.ldap_admin_password | replace('$', '$$') }}"
       LDAP_BIND_PASSWORD: "{{ ldap.binduser.password | replace('$', '$$') }}"

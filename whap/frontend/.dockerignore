@@ -1,0 +1,5 @@
+# The image installs and builds from package.json and yarn.lock; a host's
+# node_modules or build output would override that.
+node_modules/
+build/
+coverage/

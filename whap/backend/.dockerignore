@@ -1,0 +1,10 @@
+# The image gets the code, not the checkout's local state: a .env with secrets,
+# a host virtualenv (the image builds its own), caches and test output.
+.env
+.env.*
+.venv/
+**/__pycache__/
+.pytest_cache/
+.coverage
+coverage.json
+htmlcov/

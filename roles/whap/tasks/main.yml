@@ -57,9 +57,11 @@
     group: 'docker'
 
 # The images are built here, on every deploy, under the names the compose file
-# gives them (image: + build:). Left to compose they would never be rebuilt:
-# docker_compose_v2 builds only images that are missing, so new code never
-# reached the backend. Compose recreates a container whose image changed.
+# gives them (image: + build:), with the layer cache and a fresh base image:
+# the image ID changes exactly when the code, the lock files or the base image
+# do. Compose would not notice a rebuilt image under an unchanged name, so the
+# ID is also written into each service's labels (below and in the compose
+# file); a new image changes the service, and compose recreates it.
 - name: Build the image for the backend, worker and migrate containers
   community.docker.docker_image:
     name: '{{ service_cfg.name }}-backend'
@@ -68,7 +70,7 @@
       args:
         USER_ID: "{{ service_cfg.uid }}"
         GROUP_ID: "{{ service_cfg.gid }}"
-      nocache: true
+      pull: true
     source: build
     force_source: true
     push: false
@@ -78,7 +80,7 @@
     name: '{{ service_cfg.name }}-nginx'
     build:
       path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/frontend/'
-      nocache: true
+      pull: true
       rm: true
     source: build
     force_source: true
@@ -90,9 +92,27 @@
     name: '{{ service_cfg.name }}-e2e-ldap'
     build:
       path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/e2e/ldap/'
+      pull: true
     source: build
     force_source: true
     push: false
+
+# Tagged always, so a run limited by tags (e.g. --tags restarted) still renders
+# the compose file with the IDs of the images that exist.
+- name: Look up the IDs of the WhaP images
+  community.docker.docker_image_info:
+    name: '{{ service_cfg.name }}-{{ item }}'
+  loop: [backend, nginx, e2e-ldap]
+  register: whap_image_info
+  tags: [ always ]
+
+- name: Remember the image IDs for the compose file
+  ansible.builtin.set_fact:
+    whap_image_ids: "{{ whap_image_ids | default({}) | combine({item.item: ((item.images | first | default({})).Id | default(''))}) }}"
+  loop: "{{ whap_image_info.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [ always ]
 
 # Every WhaP container mounts DATASETS read-only -- datasets are curated by an
 # admin -- so the e2e dataset is created here, on the host, not by the app.
