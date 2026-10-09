@@ -42,6 +42,48 @@
 #    dest: '{{ service_cfg.directory }}/'
 #    force: true
 
+# The roles come from the WhaP next to the playbook; the images are built from
+# the checkout on the server ({{ directory }}/{{ app_subdir }}). When the two
+# are at different commits, a deploy mixes versions -- the compose file from
+# one, the code from the other -- and can leave old containers running. Stop
+# before that when both are git checkouts. whap_allow_version_mismatch=true
+# overrides it.
+- name: Find the WhaP commit the roles come from
+  ansible.builtin.command:
+    argv: [git, -C, "{{ role_path }}", rev-parse, HEAD]
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: whap_roles_commit
+  changed_when: false
+  failed_when: false
+  tags: [ always ]
+
+- name: Find the WhaP commit the images are built from
+  ansible.builtin.command:
+    # safe.directory: the play runs as root, the checkout belongs to a user.
+    argv: [git, -c, "safe.directory=*", -C, "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}",
+           rev-parse, HEAD]
+  register: whap_code_commit
+  changed_when: false
+  failed_when: false
+  tags: [ always ]
+
+- name: The roles and the code on the server must be the same WhaP version
+  ansible.builtin.assert:
+    that: whap_roles_commit.stdout == whap_code_commit.stdout
+    fail_msg: >-
+      The roles are WhaP {{ whap_roles_commit.stdout[:7] }} ({{ role_path | dirname | dirname }}), but
+      {{ inventory_hostname }} would build its images from WhaP {{ whap_code_commit.stdout[:7] }}
+      ({{ service_cfg.directory }}/{{ service_cfg.app_subdir }}). Check out the same commit in both,
+      e.g. git pull in each, or set whap_allow_version_mismatch=true.
+    quiet: true
+  when:
+    - whap_roles_commit.rc == 0
+    - whap_code_commit.rc == 0
+    - not (whap_allow_version_mismatch | default(false) | bool)
+  tags: [ always ]
+
 - name: "Copy {{ service_cfg.name }} nginx.conf"
   template:
     src: nginx.conf.j2

@@ -21,7 +21,9 @@ not yet on `main`. It must be checked out in **two** places:
   `ansible-playbook`. This supplies the roles.
 - **`/docker/whap/WhaP` on victor**, i.e. `whap.directory`/`app_subdir`. The
   role builds the backend and frontend images from this checkout, and nothing
-  updates it for you.
+  updates it for you. The playbook stops if the two are at different
+  commits: the roles would render a compose file for one version while
+  the images are built from the other.
 
 ```bash
 git -C WhaP fetch origin claude/repo-structure-review-glhxab              # in the config repo
