@@ -73,3 +73,20 @@ def test_nonexistent_roles_path_returns_error(app, tmp_path):
 
     assert images is None
     assert error
+
+
+def test_a_colon_separated_roles_path_is_searched_in_order(app, tmp_path):
+    """The whap role sets /backend/roles:/backend/roles_public. Read as one
+    path it was 'not a valid directory', and the form offered no images."""
+    site, public = tmp_path / "site", tmp_path / "public"
+    for directory, names in ((site, ["worker_site_only", "worker_shared"]),
+                             (public, ["worker_public_only", "worker_shared"])):
+        for name in names:
+            (directory / name).mkdir(parents=True)
+    app.config["ANSIBLE_ROLES_PATH"] = f"{site}:{tmp_path / 'not_mounted'}:{public}"
+
+    images, error = _get_all_system_images(app)
+
+    assert error is None
+    ids = [img["id"] for img in images]
+    assert sorted(ids) == ["worker_public_only", "worker_shared", "worker_site_only"]  # once each

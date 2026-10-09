@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from ..services import permissions_service
 from ..models import ComputeServer
+from ..config import roles_dirs
 from .. import db
 import os
 
@@ -16,17 +17,23 @@ def _get_all_system_images(app):
         app.logger.error("ANSIBLE_ROLES_PATH is not configured.")
         return None, "Image source (Ansible roles path) is not configured on the server."
 
-    if not os.path.isdir(roles_path):
-        app.logger.error(f"Configured ANSIBLE_ROLES_PATH '{roles_path}' is not a valid directory.")
+    # Colon-separated, searched in order as Ansible does: a role in an earlier
+    # directory hides one of the same name in a later one.
+    directories = roles_dirs(roles_path)
+    if not directories:
+        app.logger.error(f"Configured ANSIBLE_ROLES_PATH '{roles_path}' names no existing directory.")
         return None, "Image source (Ansible roles path) is invalid on the server."
 
     images = []
+    seen = set()
     try:
-        for item_name in os.listdir(roles_path):
-            item_path = os.path.join(roles_path, item_name)
-            if os.path.isdir(item_path) and item_name.startswith('worker_'):
-                display_name = item_name.replace('worker_', '', 1)
-                images.append({'id': item_name, 'name': display_name})
+        for directory in directories:
+            for item_name in os.listdir(directory):
+                item_path = os.path.join(directory, item_name)
+                if os.path.isdir(item_path) and item_name.startswith('worker_') and item_name not in seen:
+                    seen.add(item_name)
+                    display_name = item_name.replace('worker_', '', 1)
+                    images.append({'id': item_name, 'name': display_name})
         images.sort(key=lambda x: x['name'])
 
         presorted_image_names = ["synced_ubuntu2404_ssh",

@@ -13,6 +13,7 @@ Two kinds of test here:
   from the environment, so they assert the *in-source* defaults rather than
   whatever a developer's ``.env`` happens to contain.
 """
+import pytest
 import importlib
 from types import SimpleNamespace
 
@@ -140,3 +141,38 @@ def test_runner_dir_is_unset_without_either(monkeypatch):
     monkeypatch.delenv("ANSIBLE_RUNNER_DIR", raising=False)
     monkeypatch.delenv("ANSIBLE_PROJECT_DIR", raising=False)
     assert _runner_dir() is None
+
+
+# --- ANSIBLE_ROLES_PATH is colon-separated ---------------------------------------
+
+@pytest.fixture
+def valid_config(monkeypatch, tmp_path):
+    """A Config that passes check_critical_config; tests then break one thing."""
+    from app import config
+    for name, value in {"SECRET_KEY": "x" * 64, "CORS_ORIGINS": "https://whap.example",
+                        "SQLALCHEMY_DATABASE_URI": "postgresql://db/whap", "REDIS_HOST": "redis",
+                        "REDIS_PORT": "6379", "LDAP_SERVER_URI": "ldap://ldap", "LDAP_USER_BASE_DN": "dc=x",
+                        "ANSIBLE_PROJECT_DIR": "/backend", "ANSIBLE_CONTAINER_BASE_DIR": "/docker",
+                        "LDAP_TLS_OPTION": "DEMAND"}.items():
+        monkeypatch.setattr(config.Config, name, value)
+    return config
+
+
+def test_a_colon_separated_roles_path_passes_the_startup_check(valid_config, monkeypatch, tmp_path, capsys):
+    """Checked as one path, /backend/roles:/backend/roles_public failed every
+    rebuilt backend at start-up."""
+    (tmp_path / "roles").mkdir()
+    (tmp_path / "public").mkdir()
+    monkeypatch.setattr(valid_config.Config, "ANSIBLE_ROLES_PATH",
+                        f"{tmp_path / 'roles'}:{tmp_path / 'extra'}:{tmp_path / 'public'}")
+    valid_config.check_critical_config()
+    assert "WARNING: ANSIBLE_ROLES_PATH entry" in capsys.readouterr().out  # the missing one is named
+
+
+def test_a_failed_startup_check_stops_gunicorn_instead_of_hanging(valid_config, monkeypatch, tmp_path):
+    """Exit code 3 is gunicorn's 'worker failed to boot', which stops the
+    master. With 1 it respawned the worker forever and requests hung."""
+    monkeypatch.setattr(valid_config.Config, "ANSIBLE_ROLES_PATH", str(tmp_path / "nowhere"))
+    with pytest.raises(SystemExit) as exit_info:
+        valid_config.check_critical_config()
+    assert exit_info.value.code == 3

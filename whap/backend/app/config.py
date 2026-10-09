@@ -20,6 +20,15 @@ INSECURE_SECRET_KEY = 'a-very-secretive-secret-key-please-change'
 LDAP_TLS_OPTIONS = ('DEMAND', 'ALLOW', 'NEVER')
 
 
+def roles_dirs(roles_path):
+    """The directories in ANSIBLE_ROLES_PATH that exist, in Ansible's search order.
+
+    The path is colon-separated, as Ansible reads it: the whap role sets
+    /backend/roles[:/backend/roles_extra/N...]:/backend/roles_public.
+    """
+    return [d for d in (roles_path or '').split(os.pathsep) if d and os.path.isdir(d)]
+
+
 def _runner_dir():
     """Where generated playbooks and ansible-runner's per-job data go.
 
@@ -177,13 +186,22 @@ def check_critical_config():
             display_value = value if var not in ['LDAP_BIND_PASSWORD'] else '******'
             print(f"  OK: {var} = {display_value}")
 
-    if not cfg.ANSIBLE_ROLES_PATH or not os.path.isdir(cfg.ANSIBLE_ROLES_PATH):
-        print(f"  ERROR: ANSIBLE_ROLES_PATH '{cfg.ANSIBLE_ROLES_PATH}' is not set or not a valid directory.")
+    # Colon-separated, like Ansible's own setting; checking it as one path
+    # failed every deployment with more than one roles directory.
+    if not roles_dirs(cfg.ANSIBLE_ROLES_PATH):
+        print(f"  ERROR: ANSIBLE_ROLES_PATH '{cfg.ANSIBLE_ROLES_PATH}' names no existing directory.")
         is_ok = False
+    else:
+        for missing in set((cfg.ANSIBLE_ROLES_PATH or '').split(os.pathsep)) - set(roles_dirs(cfg.ANSIBLE_ROLES_PATH)):
+            if missing:
+                print(f"  WARNING: ANSIBLE_ROLES_PATH entry '{missing}' does not exist.")
 
     if not is_ok:
         print(
             "\nFATAL: Critical configuration missing or insecure. Please set environment variables or update .env file.")
-        sys.exit(1)  # Exit if critical config is missing
+        # 3 is gunicorn's "worker failed to boot": the master stops and the
+        # container restarts visibly. With 1, gunicorn respawns the worker
+        # forever and the backend silently hangs every request.
+        sys.exit(3)
     else:
         print("Critical configuration check passed.")
