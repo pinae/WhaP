@@ -18,6 +18,10 @@
 - name: Pull container images
   community.docker.docker_compose_v2_pull:
     project_src: "{{ service_cfg.directory }}"
+  # Only images from the registry are pulled. Without one, the compose file
+  # names either a build or a shared image built on this server
+  # (shared_image.yml), which no registry has.
+  when: (service_cfg.whap_registry | default('') | length) > 0
 
 - name: Start containers
   become: true

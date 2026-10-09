@@ -210,3 +210,43 @@ def test_the_password_is_redacted_everywhere_it_could_leave(app, db, monkeypatch
         assert PASSWORD not in text and escaped not in text, f"the password leaks through the {where}"
     assert "********" in job.log and len(events) == 1
     assert json.loads(job.extravars) == {"ttl_date": "2030-01-01"}
+
+
+@pytest.mark.parametrize("registry", ["", "registry.example:5000"])
+def test_the_role_learns_the_registry_the_compose_file_uses(app, db, monkeypatch, tmp_path, make_local_user,
+                                                            make_project, make_server, make_network,
+                                                            make_static_address, registry):
+    """The 2510 roles reference a shared image. Without a registry they must build it
+    on the compute server, so they need to know whether there is one; it was never
+    passed, and compose went looking for the image on Docker Hub."""
+    import json
+    import app.services.ansible_service as service
+    from app.models import AnsibleJob, ContainerInstance
+
+    app.config["DOCKER_REGISTRY"] = registry
+    monkeypatch.setattr(service.ansible_runner, "run", lambda **config: SimpleNamespace(
+        status="failed", rc=2, config=SimpleNamespace(artifact_dir=str(tmp_path))))
+    owner = make_local_user(username="registry_user")
+    server = make_server(hostname="tycho", gpu_count=1)
+    address = make_static_address(make_network(name="lab"), servers=[server])
+    container = ContainerInstance(user_local_user_id=owner.id, project_id=make_project(owner, name="thesis").id,
+                                  compute_server_id=server.id, image_name="worker_local_ubuntu2510_ssh", gpus="0",
+                                  status="STARTING", static_address_id=address.id)
+    db.session.add(container)
+    db.session.flush()
+    job = AnsibleJob(container_instance_id=container.id, server_id=server.id, status="RUNNING", action="create",
+                     extravars=json.dumps({"container_password": "pw"}))
+    db.session.add(job)
+    db.session.commit()
+
+    execute_ansible_job(job, _noop_callback)
+
+    service_cfg = json.loads(job.playbook)[0]["roles"][0]["vars"]["service_cfg"]
+    assert service_cfg["whap_registry"] == registry
+    image = yaml_image(service_cfg["docker_compose_content"])
+    assert image == (f"{registry}/local_ubuntu2510_ssh:latest" if registry else "local_ubuntu2510_ssh:latest")
+
+
+def yaml_image(compose_text):
+    import yaml
+    return next(iter(yaml.safe_load(compose_text)["services"].values()))["image"]

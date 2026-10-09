@@ -241,9 +241,12 @@ If you clone `my-whap` on another machine, fetch the submodule too:
 
 ### Docker registry (optional)
 
-Roles from the 2510 generation pull their images from a registry instead of
-building locally. Set `DOCKER_REGISTRY` in `.env.prod` (or `whap_registry` in your
-host_vars) to point at it. Leave it empty to use the older build-based roles.
+Roles from the 2510 generation use one image per role for every user (the
+user is set up when the container starts). Set `whap_registry` in your
+host_vars (`DOCKER_REGISTRY` in `.env.prod`) to pull these images from a
+registry. Leave it empty and each compute server builds them itself, the first
+time a container of the role starts there; that takes a while, as the images
+include CUDA.
 
 ## Run the playbook
 

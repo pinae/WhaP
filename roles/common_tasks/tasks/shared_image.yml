@@ -1,0 +1,44 @@
+# For roles whose image is the same for every user (the 2510 generation: the
+# entrypoint sets the user up at start). With a registry (whap_registry, the
+# backend's DOCKER_REGISTRY) the compose file pulls the image from there.
+# Without one, nothing would provide it -- compose tried Docker Hub and failed
+# -- so it is built here, once per compute server, and rebuilt (from the layer
+# cache, quickly) when the role's Dockerfile or files change.
+- name: "Build the shared image {{ shared_image }} on this server"
+  when: (service_cfg.whap_registry | default('') | length) == 0
+  vars:
+    shared_image: "{{ service_cfg.image_name | regex_replace('^worker_', '') }}"
+    build_dir: "{{ docker_dir }}/images/{{ shared_image }}"
+  block:
+    - name: "Ensure {{ build_dir }} exists"
+      become: true
+      ansible.builtin.file:
+        path: "{{ build_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Copy the build files for {{ shared_image }}"
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ build_dir }}/{{ item }}"
+        mode: "0644"
+      loop: [entrypoint.sh, nopasswd]
+
+    - name: "Prepare the Dockerfile for {{ shared_image }}"
+      become: true
+      ansible.builtin.template:
+        src: Dockerfile.j2
+        dest: "{{ build_dir }}/Dockerfile"
+        mode: "0644"
+
+    - name: "Build {{ shared_image }}:latest (the first time takes a while: CUDA)"
+      become: true
+      community.docker.docker_image:
+        name: "{{ shared_image }}:latest"
+        source: build
+        force_source: true
+        build:
+          path: "{{ build_dir }}"
+          dockerfile: Dockerfile
+      register: shared_image_build

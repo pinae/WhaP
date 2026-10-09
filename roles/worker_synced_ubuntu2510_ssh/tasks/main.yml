@@ -35,6 +35,10 @@
     name: common_tasks
     tasks_from: ensure_network
 
+- ansible.builtin.import_role:
+    name: common_tasks
+    tasks_from: shared_image
+
 - name: Create local password file for Docker Secret
   no_log: true  # the content is the container password
   ansible.builtin.copy:

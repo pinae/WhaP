@@ -9,7 +9,7 @@ from flask import current_app
 from .. import db
 from ..models import ComputeServer, UserSSHKey
 from ..services.local_file_service import get_gids_for_paths
-from .compose_builder import build_compose_file
+from .compose_builder import build_compose_file, _docker_registry
 from .. import socketio
 
 
@@ -261,6 +261,9 @@ def execute_ansible_job(job, event_callback):
             gpu_selection=container.gpus.split(',') if container.gpus else []
         )
         service_cfg_vars['docker_compose_content'] = quoted(compose_content)
+        # The registry the compose file pulls shared images from; empty means the
+        # role builds them on the compute server (common_tasks/shared_image.yml).
+        service_cfg_vars['whap_registry'] = quoted(_docker_registry())
 
         playbook_content = [{
             'hosts': quoted(server.hostname),
