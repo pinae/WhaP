@@ -34,8 +34,8 @@ whap:
     use: true
     name: "traefik_default"
   # Test rigs only: fixtures for the end-to-end tests -- a disposable LDAP
-  # directory and a small dataset (whap/e2e/README.md). Also point the ldap
-  # block below at the test directory.
+  # directory and a small dataset (whap/e2e/README.md). While enabled, WhaP
+  # signs users in against the test directory instead of the ldap block below.
   # e2e:
   #   enabled: true
   #   ldap_admin_password: "..."

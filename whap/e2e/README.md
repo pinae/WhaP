@@ -226,8 +226,7 @@ the application.
 
 ## Enabling the fixtures on a test rig
 
-In the storage server's host_vars, switch the rig into test mode and point WhaP
-at the test directory:
+In the storage server's host_vars, switch the rig into test mode:
 
 ```yaml
 whap:
@@ -237,16 +236,12 @@ whap:
     ldap_admin_password: "..."
     alice_password: "..."
     bob_password: "..."
-
-ldap:
-  uri: "ldap://e2e-ldap"
-  base:
-    dn: "ou=people,dc=whap,dc=test"
-  binduser:
-    dn: "cn=whap-bind,dc=whap,dc=test"
-    password: "..."          # the directory is seeded with this
-  user_object_class: "inetOrgPerson"
+    # bind_password: "..."   # the service account's; default ldap.binduser.password
 ```
+
+With `e2e.enabled`, the role points WhaP at the test directory
+(`ldap://e2e-ldap`, `ou=people,dc=whap,dc=test`, `inetOrgPerson`) instead of
+the `ldap` block, which is used again once `e2e` is off.
 
 Plain `ldap://` is deliberate: the directory has no certificate, and traffic
 never leaves the compose network, which publishes no LDAP port. Never enable

@@ -34,8 +34,7 @@ git -C /docker/whap/WhaP checkout claude/repo-structure-review-glhxab
 git -C /docker/whap/WhaP pull
 ```
 
-In victor's host_vars, switch on the fixtures and point WhaP's LDAP at the test
-directory. Pick four passwords:
+In victor's host_vars, switch on the fixtures. Pick three passwords:
 
 ```yaml
 whap:
@@ -45,16 +44,13 @@ whap:
     ldap_admin_password: "..."
     alice_password: "..."      # goes into rig.toml later
     bob_password: "..."        # goes into rig.toml later
-
-ldap:
-  uri: "ldap://e2e-ldap"
-  base:
-    dn: "ou=people,dc=whap,dc=test"
-  binduser:
-    dn: "cn=whap-bind,dc=whap,dc=test"
-    password: "..."
-  user_object_class: "inetOrgPerson"
 ```
+
+That is all: with `e2e.enabled` the role points WhaP at the test directory
+(`ldap://e2e-ldap`) by itself. The `ldap` block stays as it is and is used
+again once `e2e` is off. Meanwhile real users cannot sign in. The directory's
+service account uses `ldap.binduser.password` unless you set
+`e2e.bind_password`.
 
 Then deploy both machines. tycho gets the new worker images (python3-venv,
 tmux) and role changes:
@@ -168,7 +164,7 @@ What to suspect first:
 |---|---|
 | "No such command 'e2e-reset'", or the harness says the backend runs old code | `/docker/whap/WhaP` on victor is not on this branch, or the deploy did not rebuild `whap-backend`: see the checks in step 1 |
 | The run stops at once: "GET .../auth/session failed" (the browser shows only a spinner) | the backend is not serving: `docker logs whap-backend`, usually a FATAL configuration error |
-| Login tests fail | `ldap` block in host_vars not pointing at `ldap://e2e-ldap`, or wrong passwords in rig.toml |
+| Login tests fail with "Invalid credentials" | WhaP is not using the test directory: `docker exec whap-backend env \| grep LDAP_SERVER_URI` must say `ldap://e2e-ldap` (redeploy with `e2e.enabled`); otherwise the passwords in rig.toml differ from `e2e.alice_password`/`bob_password` |
 | Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
 | Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |
 | Volume tests fail with "no such file" | a dataset or shared project path does not exist on tycho under the same path (NFS mount) |
@@ -193,9 +189,8 @@ newest. `systemctl --user status whap-e2e` shows whether the last night passed.
 
 To turn victor back into a normal deployment:
 
-1. Set `e2e.enabled: false`.
-2. Restore the real `ldap` block.
-3. Redeploy.
+1. Set `e2e.enabled: false`; WhaP uses the `ldap` block again.
+2. Redeploy.
 
 Then delete the e2e projects' directories under `projects_dir/e2e-*` on
 victor, and `/home/e2e-*` on tycho, which holds the local roles' project

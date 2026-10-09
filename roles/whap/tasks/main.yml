@@ -183,3 +183,43 @@
 - ansible.builtin.import_role:
     name: compose_hull
     tasks_from: deploy_docker
+  vars:
+    # compose_hull's default is recreate: never, under which a deploy never
+    # replaced a running container -- not for a new image, a changed compose
+    # file or a changed .env.prod -- so new code never reached the backend.
+    # auto recreates exactly the services whose image or configuration
+    # changed. The tagged runs (restarted, stopped, recreated, absent) still
+    # win: their set_fact outranks these vars.
+    docker_compose_params:
+      state: present
+      recreate: auto
+      remove_orphans: false
+      remove_volumes: false
+# A deploy that leaves a container on an older image used to pass unnoticed:
+# the backend kept running old code although a new image had been built.
+- name: Check that the containers run the images just built
+  community.docker.docker_container_info:
+    name: "{{ item.container }}"
+  loop:
+    - {container: whap-migrate, image: backend}
+    - {container: whap-backend, image: backend}
+    - {container: whap-worker, image: backend}
+    - {container: whap-nginx, image: nginx}
+    - {container: whap-e2e-ldap, image: e2e-ldap, when: "{{ service_cfg.e2e.enabled }}"}
+  loop_control:
+    label: "{{ item.container }}"
+  when: item.when | default(true) | bool
+  register: whap_running
+
+- name: Every container runs the image of this deploy
+  ansible.builtin.assert:
+    that: item.container.Image == whap_image_ids[item.item.image]
+    fail_msg: >-
+      {{ item.item.container }} runs image {{ item.container.Image[7:19] }}, but this deploy built
+      {{ service_cfg.name }}-{{ item.item.image }} as {{ whap_image_ids[item.item.image][7:19] }}.
+      Compose did not recreate it. `docker compose up -d --force-recreate {{ item.item.container | replace('whap-', '') }}`
+      in {{ service_cfg.directory }} does; a run with --tags restarted or stopped leaves containers as they are.
+    quiet: true
+  loop: "{{ whap_running.results | selectattr('exists', 'defined') | selectattr('exists') | list }}"
+  loop_control:
+    label: "{{ item.item.container }}"
