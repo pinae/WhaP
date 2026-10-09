@@ -167,7 +167,7 @@ What to suspect first:
 | Login tests fail with "Invalid credentials" | WhaP is not using the test directory: `docker exec whap-backend env \| grep LDAP_SERVER_URI` must say `ldap://e2e-ldap` (redeploy with `e2e.enabled`); otherwise the passwords in rig.toml differ from `e2e.alice_password`/`bob_password` |
 | Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
 | Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |
-| Volume tests fail with "no such file" | a dataset or shared project path does not exist on tycho under the same path (NFS mount) |
+| `test_the_compute_server_sees_the_projects_and_datasets` fails, or a share is "a placeholder Docker made" | tycho's `/data` is not victor's `projects_dir`: mount it over NFS (worker host_vars `nfs`), so that `/data/<user>/<project>` and `/data/DATASETS` on tycho are the directories on victor |
 | PyTorch test fails on CUDA | `[torch] index_url` does not match the driver |
 | `worker_synced_nvidia_pytorch1906` "image does what it is for" fails | expected: its conda Python is probably not on PATH in SSH sessions; please send me the output |
 

@@ -55,8 +55,14 @@ class Rig:
         except KeyError as e:
             pytest.exit(f"{path} is missing {e}; see rig.example.toml.", returncode=4)
         self.browser = data.get("browser", {})
-        # Optional: only for collecting `docker logs` when a container test fails.
-        self.compute_shell = list(data.get("compute", {}).get("shell", []))
+        # Optional: for `docker logs` of failed containers, and to check that the
+        # compute server sees the storage server's projects and datasets.
+        compute = data.get("compute", {})
+        self.compute_shell = list(compute.get("shell", []))
+        # Where WhaP tells the compute server its projects and datasets are
+        # (PROJECT_STORAGE_DIR in .env.prod): the storage server's projects_dir,
+        # mounted over NFS. Containers bind-mount paths under it.
+        self.compute_data_dir = compute.get("data_dir", "/data").rstrip("/")
         container, torch = data.get("container", {}), data.get("torch", {})
         self.container = ContainerSettings(
             image=container.get("image", "worker_local_ubuntu2510_ssh"),

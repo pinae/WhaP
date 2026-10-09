@@ -5,6 +5,8 @@ has an SSH key, and owns a project whose directory the worker created.
 """
 import re
 
+import pytest
+
 from playwright.sync_api import expect
 
 from pages import LoginPage
@@ -68,3 +70,24 @@ def test_shared_project_and_dataset_are_offered_as_volumes(login, rig, run_id):
 
     assert f"Shared: {name} (ro)" in offered
     assert "Dataset: e2e-dataset (ro)" in offered
+
+
+def test_the_compute_server_sees_the_projects_and_datasets(login, rig, run_id):
+    """Containers bind-mount projects and datasets by the paths WhaP knows them
+    by. If the compute server's /data is not the storage server's projects_dir,
+    Docker mounts an empty directory it makes up instead, and a user's shared
+    project or dataset is silently empty."""
+    if not rig.compute_shell:
+        pytest.skip("set [compute] shell in rig.toml to check the compute server")
+    name = f"nfs-{run_id}"
+    login("alice").projects().create(name)
+    rig.owner_of(rig.project_dir("alice", name))  # made on the storage server
+
+    project = f"{rig.compute_data_dir}/{rig.users['alice'].uid}/{name}"
+    seen = rig.on_compute("stat", "-c", "%u:%g", project)
+    marker = rig.on_compute("cat", f"{rig.compute_data_dir}/DATASETS/e2e-dataset/e2e-marker.txt")
+    mounts = rig.on_compute("findmnt", "-T", rig.compute_data_dir).stdout
+    assert seen.stdout.strip() == ALICE_IDS, (
+        f"the compute server has no {project}, which the storage server just made: its "
+        f"{rig.compute_data_dir} is not the storage server's projects_dir.\n{seen.stderr}\n{mounts}")
+    assert marker.stdout.strip() == "whap-e2e-dataset", f"no e2e dataset on the compute server\n{marker.stderr}"

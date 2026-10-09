@@ -33,6 +33,7 @@ from remote import ContainerShell
 from rig import matrix_roles, rig_for, worker_roles
 
 ALICE_IDS = "70001:70000"  # fixed by the e2e LDAP directory
+BOB_UID = "70002"
 DATASET = "Dataset: e2e-dataset (ro)"
 DATASET_MARKER = ("e2e-marker.txt", "whap-e2e-dataset")  # written by the whap role
 BOB_SHARES = {"share-ro": "e2e-bob-ro", "share-rw": "e2e-bob-rw"}
@@ -248,6 +249,16 @@ def test_the_image_does_what_it_is_for(running, rig, ssh_keypair):
 
 # --- Volumes ---------------------------------------------------------------------
 
+def assert_is_bobs_project(sh, path, rig):
+    """Docker mounts an empty directory it makes up (root's, 0755) when the
+    source path is missing on the compute server. Make sure this is the real one."""
+    owner = sh.run(f"stat -c %u {path}").stdout.strip()
+    assert owner == BOB_UID, (
+        f"{path} belongs to uid {owner}, not bob ({BOB_UID}): it is a placeholder Docker made because "
+        f"the compute server has no such project under {rig.compute_data_dir} -- is the storage server's "
+        f"projects_dir mounted there? See test_the_compute_server_sees_the_projects_and_datasets.")
+
+
 def assert_read_only(sh, path):
     """Writing under ``path`` fails because the mount is read-only, not for some other reason."""
     probe = sh.run(f"touch {path}/.e2e-write-probe")
@@ -261,7 +272,9 @@ def test_the_dataset_is_mounted_read_only(running, rig, ssh_keypair):
     name, content = DATASET_MARKER
     with shell(running, rig, ssh_keypair) as sh:
         marker = sh.run(f"cat {path}/{name}")
-        assert marker.exit_status == 0 and marker.stdout.strip() == content, str(marker)
+        assert marker.exit_status == 0 and marker.stdout.strip() == content, (
+            f"{marker}\nIf the dataset directory is empty, the compute server has no "
+            f"{rig.compute_data_dir}/DATASETS: see test_the_compute_server_sees_the_projects_and_datasets.")
         assert_read_only(sh, path)
 
 
@@ -269,6 +282,7 @@ def test_the_dataset_is_mounted_read_only(running, rig, ssh_keypair):
 def test_a_read_only_share_is_readable_but_not_writable(running, rig, ssh_keypair):
     path = running.mounts["share-ro"]
     with shell(running, rig, ssh_keypair) as sh:
+        assert_is_bobs_project(sh, path, rig)
         listing = sh.run(f"ls -A {path}")
         assert listing.exit_status == 0, str(listing)
         assert_read_only(sh, path)
@@ -279,6 +293,7 @@ def test_writes_to_a_writable_share_land_in_the_owners_project(running, rig, ssh
     path = running.mounts["share-rw"]
     name, content = f"from-alice-{running.case.id}.txt", f"written by alice in run {run_id}"
     with shell(running, rig, ssh_keypair) as sh:
+        assert_is_bobs_project(sh, path, rig)
         write = sh.run(f"printf %s '{content}' > {path}/{name}")
         context = sh.run(f"id; ls -ldn {path}").stdout
     assert write.exit_status == 0, (f"alice could not write to bob's project, shared with her read-write:\n"
@@ -286,6 +301,19 @@ def test_writes_to_a_writable_share_land_in_the_owners_project(running, rig, ssh
 
     on_storage = f"{rig.project_dir('bob', BOB_SHARES['share-rw'])}/{name}"
     assert rig.owner_of(on_storage, timeout=10) == ALICE_IDS
+    assert rig.on_storage("cat", on_storage).stdout == content
+
+
+@applies_to(lambda case: case.gpu and case.role.startswith("worker_synced_"))
+def test_a_synced_home_reaches_the_storage_server(running, rig, ssh_keypair, run_id):
+    """What makes a synced container synced: its home directory is the project
+    on the storage server, so nothing is lost with the compute server."""
+    name, content = f".e2e-synced-{run_id}", f"synced from {running.case.id}"
+    with shell(running, rig, ssh_keypair) as sh:
+        write = sh.run(f"printf %s '{content}' > ~/{name}")
+    assert write.exit_status == 0, str(write)
+    on_storage = f"{rig.project_dir('alice', running.case.project)}/{name}"
+    assert rig.owner_of(on_storage, timeout=10) == ALICE_IDS, f"{on_storage} not found on the storage server"
     assert rig.on_storage("cat", on_storage).stdout == content
 
 

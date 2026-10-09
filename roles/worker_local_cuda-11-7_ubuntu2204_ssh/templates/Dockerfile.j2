@@ -28,6 +28,21 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86
 RUN echo "\n\n\n\n\n2\n" | apt-get -y install nvidia-cudnn
 RUN apt-get -y install nvtop
 
+# The packages above bring the NVIDIA driver's user-space libraries (libcuda,
+# libnvidia-ml, ... from libnvidia-compute-*), needed only to satisfy
+# their dependencies. At run time the NVIDIA container toolkit mounts the
+# host's own, matching ones, but the image's copies can shadow them: an older
+# host driver loses to the newer copy, and a host that keeps its libraries
+# elsewhere (Arch: /usr/lib) loses to /usr/lib/x86_64-linux-gnu, searched
+# first. CUDA and nvidia-smi then fail with "Driver/library version mismatch".
+# Remove the image's copies so the host's are the only ones, whatever driver
+# and distribution it runs. The packages stay installed for apt.
+RUN dpkg-query -W -f '${Package}\n' 'libnvidia-*' 2>/dev/null \
+      | xargs -r dpkg -L 2>/dev/null \
+      | grep -E '/lib(cuda[a-z]*|nvidia-[^/]*)\.so[^/]*$' \
+      | xargs -r rm -f \
+    && ldconfig
+
 # Using a heredoc is slightly more robust than piping echo for multi-line input
 #RUN (apt-get -y install nvidia-cudnn <<EOF
 #2

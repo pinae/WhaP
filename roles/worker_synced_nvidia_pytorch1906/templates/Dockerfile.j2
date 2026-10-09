@@ -56,6 +56,11 @@ USER ${USERNAME}
 
 # Start OpenSSH
 USER root
+# SSH logins do not get the image's ENV, so PATH lost /opt/conda/bin: python
+# was Ubuntu's Python 2, without torch, and venv had no ensurepip. Hand the
+# image's environment to login shells.
+RUN env | grep -E '^(PATH|LD_LIBRARY_PATH|LIBRARY_PATH|CUDA_[A-Z_]*|CUDNN_[A-Z_]*|NCCL_[A-Z_]*|NVIDIA_[A-Z_]*|PYTORCH_[A-Z_]*|PYTHONIOENCODING|LC_ALL|LANG)=' \
+      | sed -E "s/^([^=]+)=(.*)$/export \1='\2'/" > /etc/profile.d/00-image-env.sh
 RUN mkdir -p /var/run/sshd
 RUN chmod 0755 /var/run/sshd
 RUN ssh-keygen -A

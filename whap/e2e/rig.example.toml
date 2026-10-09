@@ -37,6 +37,9 @@ projects_dir = "/data/projects"
 # container test can attach the container's `docker logs`. The command line is
 # passed as the last argument, as ssh takes it; the user needs docker access.
 # shell = ["ssh", "tycho"]
+# Where the compute server mounts the storage server's projects_dir (NFS); WhaP
+# hands containers paths under it. Default /data.
+# data_dir = "/data"
 
 [container]
 # All optional; defaults shown. The role the single-container tests start.
