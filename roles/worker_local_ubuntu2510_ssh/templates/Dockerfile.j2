@@ -30,10 +30,12 @@ RUN apt-get -y install nvtop
 # The packages above bring the NVIDIA driver's user-space libraries (libcuda,
 # libnvidia-ml, ... from libnvidia-compute-580-server), needed only to satisfy
 # their dependencies. At run time the NVIDIA container toolkit mounts the
-# host's own, matching ones, but ldconfig prefers the newest version: an image
-# copy newer than the host's driver wins, and CUDA and nvidia-smi fail with
-# "Driver/library version mismatch". Remove the image's copies so the host's
-# are used, whatever driver it runs. The packages stay installed for apt.
+# host's own, matching ones, but the image's copies can shadow them: an older
+# host driver loses to the newer copy, and a host that keeps its libraries
+# elsewhere (Arch: /usr/lib) loses to /usr/lib/x86_64-linux-gnu, searched
+# first. CUDA and nvidia-smi then fail with "Driver/library version mismatch".
+# Remove the image's copies so the host's are the only ones, whatever driver
+# and distribution it runs. The packages stay installed for apt.
 RUN dpkg-query -W -f '${Package}\n' 'libnvidia-*' 2>/dev/null \
       | xargs -r dpkg -L 2>/dev/null \
       | grep -E '/lib(cuda[a-z]*|nvidia-[^/]*)\.so[^/]*$' \
