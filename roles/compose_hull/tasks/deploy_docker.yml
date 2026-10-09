@@ -38,6 +38,9 @@
 - name: Pull container images
   community.docker.docker_compose_v2_pull:
     project_src: "{{ service_cfg.directory }}"
+    # Images with a build section are built locally (e.g. by the whap role);
+    # there is nothing to pull for them.
+    ignore_buildable: true
 
 #- name: Create containers
 #  ansible.builtin.command:

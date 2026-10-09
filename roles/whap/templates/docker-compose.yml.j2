@@ -41,6 +41,8 @@ services:
     # the backend. FLASK_APP points at the app factory (not run.py) so this does
     # NOT start run.py's Redis log-consumer thread. Runs once and exits; backend
     # and worker wait for it to complete successfully.
+    # Built by the whap role on every deploy (tasks/main.yml); see the comment there.
+    image: "{{ service_cfg.name }}-backend"
     build:
       context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/backend"
       dockerfile: Dockerfile
@@ -57,6 +59,8 @@ services:
         condition: service_healthy
     restart: "no"
   backend:
+    # Built by the whap role on every deploy (tasks/main.yml); see the comment there.
+    image: "{{ service_cfg.name }}-backend"
     build:
       context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/backend"
       dockerfile: Dockerfile
@@ -98,8 +102,9 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
   worker:
+    image: "{{ service_cfg.name }}-backend"
     build:
-      context: "{{ service_cfg.directory }}/whap/backend"
+      context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/backend"
       dockerfile: Dockerfile
       args:
         USER_ID: "{{ service_cfg.uid }}"
@@ -137,6 +142,7 @@ services:
         condition: service_started
     restart: unless-stopped
   nginx:
+    image: "{{ service_cfg.name }}-nginx"
     build:
       context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/frontend"
       dockerfile: Dockerfile
@@ -165,6 +171,7 @@ services:
     # e2e-bob under ou=people,dc=whap,dc=test (see whap/e2e/ldap). Point the
     # inventory's ldap.uri at ldap://e2e-ldap to use it. No published ports;
     # only the backend and worker reach it, on the compose network.
+    image: "{{ service_cfg.name }}-e2e-ldap"
     build:
       context: "{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/e2e/ldap"
     container_name: whap-e2e-ldap

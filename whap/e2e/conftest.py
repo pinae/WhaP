@@ -111,10 +111,15 @@ def known_state(rig, pytestconfig):
     for args in (reset_args, ["e2e-seed", "-"]):
         result = rig.flask(*args, input=spec, check=False)
         if result.returncode != 0:
+            output = result.stdout + result.stderr
+            if f"No such command '{args[0]}'" in output:
+                pytest.exit(f"The backend on the storage server has no `flask {args[0]}`: it runs code from "
+                            "before the e2e fixtures. Check out this branch where the server builds from "
+                            "and redeploy; RUNNING-ON-THE-RIG.md step 1 says how to check.", returncode=3)
             hint = ("\n(From pytest, that is --force-reset.)"
-                    if "--force" in result.stdout + result.stderr and "--force" not in args else "")
+                    if "--force" in output and "--force" not in args else "")
             pytest.exit(f"`flask {' '.join(args)}` failed on the storage server, so the rig is not in a "
-                        f"known state:\n{result.stdout}{result.stderr}{hint}", returncode=3)
+                        f"known state:\n{output}{hint}", returncode=3)
 
 
 @pytest.fixture(scope="session")

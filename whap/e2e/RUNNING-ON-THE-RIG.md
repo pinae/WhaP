@@ -15,11 +15,21 @@ tycho itself cannot reach them.
 ## 1. Deploy the test branch with the fixtures on
 
 Everything the tests need is on the branch `claude/repo-structure-review-glhxab`,
-not yet on `main`. In your private config repository:
+not yet on `main`. It must be checked out in **two** places:
+
+- **Your private config repository's `WhaP` submodule**, wherever you run
+  `ansible-playbook`. This supplies the roles.
+- **`/docker/whap/WhaP` on victor**, i.e. `whap.directory`/`app_subdir`. The
+  role builds the backend and frontend images from this checkout, and nothing
+  updates it for you.
 
 ```bash
-git -C WhaP fetch origin claude/repo-structure-review-glhxab
+git -C WhaP fetch origin claude/repo-structure-review-glhxab              # in the config repo
 git -C WhaP checkout claude/repo-structure-review-glhxab
+
+git -C /docker/whap/WhaP fetch origin claude/repo-structure-review-glhxab  # on victor
+git -C /docker/whap/WhaP checkout claude/repo-structure-review-glhxab
+git -C /docker/whap/WhaP pull
 ```
 
 In victor's host_vars, switch on the fixtures and point WhaP's LDAP at the test
@@ -53,8 +63,15 @@ ansible-playbook plays/whap.yml
 
 Check that it worked:
 
-- `docker ps` on victor lists `e2e-ldap` next to `whap-backend` and `whap-worker`.
+- `docker ps` on victor lists `whap-e2e-ldap` next to `whap-backend` and `whap-worker`.
 - `docker exec whap-backend flask --help` lists `e2e-seed` and `e2e-reset`.
+  If they are missing, the backend runs old code:
+  - Check `git -C /docker/whap/WhaP log --oneline -1`; it should match this
+    branch's latest commit.
+  - Check that `docker images whap-backend` shows an image created by this
+    deploy.
+- The backend logs no `ANSIBLE_RUNNER_DIR not configured` at start
+  (`docker logs whap-backend | head`). That warning means an old image.
 - On tycho, Docker can use the GPU:
   `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
 - If you use the registry for the 2510 roles, its images are pushed.
@@ -143,6 +160,7 @@ What to suspect first:
 
 | Symptom | Likely cause |
 |---|---|
+| "No such command 'e2e-reset'", or the harness says the backend runs old code | `/docker/whap/WhaP` on victor is not on this branch, or the deploy did not rebuild `whap-backend`: see the checks in step 1 |
 | Login tests fail | `ldap` block in host_vars not pointing at `ldap://e2e-ldap`, or wrong passwords in rig.toml |
 | Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
 | Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |

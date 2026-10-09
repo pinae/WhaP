@@ -56,9 +56,13 @@
     owner: '{{ admin.name }}'
     group: 'docker'
 
-- name: Build the image for the backend container
+# The images are built here, on every deploy, under the names the compose file
+# gives them (image: + build:). Left to compose they would never be rebuilt:
+# docker_compose_v2 builds only images that are missing, so new code never
+# reached the backend. Compose recreates a container whose image changed.
+- name: Build the image for the backend, worker and migrate containers
   community.docker.docker_image:
-    name: '{{ service_cfg.name }}-api'
+    name: '{{ service_cfg.name }}-backend'
     build:
       path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/backend/'
       args:
@@ -76,6 +80,16 @@
       path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/frontend/'
       nocache: true
       rm: true
+    source: build
+    force_source: true
+    push: false
+
+- name: Build the image for the e2e LDAP directory
+  when: service_cfg.e2e.enabled
+  community.docker.docker_image:
+    name: '{{ service_cfg.name }}-e2e-ldap'
+    build:
+      path: '{{ service_cfg.directory }}/{{ service_cfg.app_subdir }}/whap/e2e/ldap/'
     source: build
     force_source: true
     push: false
