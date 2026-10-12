@@ -19,12 +19,19 @@ def fill(template, fields):
 
 
 def format_time(value, zone, with_date=True):
-    """'Tue 20 Oct, 08:00' (or '08:00') in ``zone``, from an ISO string or a datetime."""
+    """'Tue 20 Oct, 08:00' (or '08:00') in ``zone``, from an ISO string or a datetime.
+
+    A time without a zone is taken as already in ``zone``: the composer's
+    local times, kept as typed in a draft that isn't complete yet.
+    """
     if not value:
         return ''
-    moment = datetime.fromisoformat(value) if isinstance(value, str) else value
+    try:
+        moment = datetime.fromisoformat(value) if isinstance(value, str) else value
+    except ValueError:
+        return str(value)
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=ZoneInfo('UTC'))
+        moment = moment.replace(tzinfo=ZoneInfo(zone))
     local = moment.astimezone(ZoneInfo(zone))
     return local.strftime('%a %-d %b, %H:%M') if with_date else local.strftime('%H:%M')
 
@@ -67,15 +74,12 @@ def container_lines(containers):
                      f"{c.compute_server.hostname if c.compute_server else '?'}" for c in containers)
 
 
-def fields_for(notification, recipient, config):
-    """The values a template may use, for this notification and person."""
+def common_fields(notification, config):
+    """The values that are the same for every recipient."""
     zone = config.get('TIMEZONE') or 'UTC'
     whap_url = (config.get('WHAP_URL') or '').rstrip('/')
     params = notification.params_dict
     fields = {
-        'name': recipient.name,
-        'username': recipient.username,
-        'containers': container_lines(recipient.containers),
         'whap_url': whap_url,
         'settings_url': f"{whap_url}/settings" if whap_url else '',
         'image': params.get('image', ''),
@@ -92,6 +96,12 @@ def fields_for(notification, recipient, config):
         same_day = start and format_time(start, zone)[:10] == format_time(end, zone)[:10]
         fields['end'] = format_time(end, zone, with_date=not same_day)
     return fields
+
+
+def fields_for(notification, recipient, config):
+    """The values a template may use, for this notification and person."""
+    return {**common_fields(notification, config), 'name': recipient.name, 'username': recipient.username,
+            'containers': container_lines(recipient.containers)}
 
 
 def why(notification):

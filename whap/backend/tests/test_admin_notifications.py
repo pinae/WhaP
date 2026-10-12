@@ -277,3 +277,20 @@ def test_the_list_shows_admin_notifications_newest_first_without_expiry_reminder
     assert [n["subject"] for n in setup["client"].get(f"{URL}?kind=expiry").get_json()] == ["thesis expires"]
     expiry_id = setup["client"].get(f"{URL}?kind=expiry").get_json()[0]["id"]
     assert setup["client"].put(f"{URL}/{expiry_id}", json={"subject": "x"}).status_code == 400
+
+
+def test_lists_show_the_subject_with_what_is_the_same_for_everyone_filled_in(setup):
+    saved = draft(setup, subject="{server} restarts on {start}, {name}")
+    weekday = datetime.fromisoformat(f"{DAY}T08:00").strftime("%a %-d %b")
+    assert saved["title"] == f"tycho restarts on {weekday}, 08:00, {{name}}"
+    half_done = draft(setup, params={"server_ids": [], "start": f"{DAY}T08:00"})
+    assert f"on {weekday}, 08:00" in half_done["title"], "a draft's local time is shown as typed"
+
+
+def test_delivery_reports_name_local_users(db, setup, mail, make_local_user, make_container, make_project):
+    carol = make_local_user(username="carol")
+    carol.email = "carol@uni.example"
+    make_container(carol, make_project(owner=carol, name="ocr"), setup["tycho"])
+    notification_id = sent(setup)
+    names = [d["username"] for d in setup["client"].get(f"{URL}/{notification_id}/deliveries").get_json()]
+    assert sorted(names) == ["alice", "carol"]

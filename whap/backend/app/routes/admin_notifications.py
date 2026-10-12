@@ -16,7 +16,7 @@ from sqlalchemy import func
 from .. import admin_required, db
 from ..config import email_configured, matrix_configured
 from ..models import (
-    ComputeServer, ContainerInstance, ContainerMount, Group, GroupMembership, Notification,
+    ComputeServer, ContainerInstance, ContainerMount, Group, GroupMembership, LocalUser, Notification,
     NotificationDelivery, NotificationSettings,
 )
 from ..notifications import audience, compose, dispatch, render
@@ -70,7 +70,9 @@ def _summary(notification):
         db.select(func.count(func.distinct(NotificationDelivery.user_uid)))
         .where(NotificationDelivery.notification_id == notification.id))
     counts = {'pending': 0, 'sent': 0, 'failed': 0, **dict(rows)}
-    return {**notification.to_dict(), 'about': _about(notification), 'deliveries': counts,
+    # The subject with what is the same for everyone filled in, for lists.
+    title = ' '.join(render.fill(notification.subject, render.common_fields(notification, current_app.config)).split())
+    return {**notification.to_dict(), 'title': title, 'about': _about(notification), 'deliveries': counts,
             'recipients': users, 'editable': notification.status in EDITABLE}
 
 
@@ -375,7 +377,15 @@ def deliveries(notification_id):
         db.select(NotificationDelivery).where(NotificationDelivery.notification_id == notification.id)
         .order_by(NotificationDelivery.status.desc(), NotificationDelivery.user_uid,
                   NotificationDelivery.channel)).all()
-    return jsonify([{**d.to_dict(), 'username': d.user_uid.split(':', 1)[-1]} for d in rows])
+    local_ids = [int(d.user_uid.split(':', 1)[1]) for d in rows if d.user_uid.startswith('local:')]
+    local_names = dict(db.session.execute(
+        db.select(LocalUser.id, LocalUser.username).where(LocalUser.id.in_(local_ids))).all())
+
+    def username(uid):
+        prefix, ident = uid.split(':', 1)
+        return local_names.get(int(ident), uid) if prefix == 'local' else ident
+
+    return jsonify([{**d.to_dict(), 'username': username(d.user_uid)} for d in rows])
 
 
 @notif_bp.route('/admin/notifications/<int:notification_id>/retry', methods=['POST'])

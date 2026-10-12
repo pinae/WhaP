@@ -26,6 +26,7 @@ import ListAltIcon from '@mui/icons-material/ListAlt'; // Icon for Containers ta
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet'; // Icon for IP addresses tab
 import LanguageIcon from '@mui/icons-material/Language';  // Icon for networks tab
 import SupervisedUserCircleIcon from '@mui/icons-material/SupervisedUserCircle'; // Icon for Groups
+import CampaignIcon from '@mui/icons-material/Campaign'; // Icon for Notifications
 
 // API and Context
 import api from '../services/api';
@@ -41,6 +42,7 @@ import LocalUserList from '../components/LocalUserList';
 import AdminSSHKeyList from "../components/AdminSSHKeyList";
 import AdminGroupList from "../components/AdminGroupList";
 import Header from '../components/Header';
+import AdminNotifications from '../components/AdminNotifications';
 
 // Modals
 import ComputeServerModal from '../components/ComputeServerModal';
@@ -113,6 +115,7 @@ function AdminPage() {
     }, [logout]);
 
     useEffect(() => {
+        if (activeTab === 'notifications') return;  // loads its own data
         fetchData(activeTab === 'sshKeys' ? 'allSshKeys' : activeTab);
     }, [activeTab, fetchData]);
 
@@ -120,6 +123,7 @@ function AdminPage() {
     const handleTabChange = (event, newValue) => {
         setSearchParams({ tab: newValue });
     }
+    // The tab bar must fit nine tabs, so the labels are short.
 
     const openModal = async (type, item = null) => {
         setModalError('');
@@ -249,6 +253,7 @@ function AdminPage() {
 
     // --- Rendering Logic ---
     const renderContent = () => {
+        if (activeTab === 'notifications') return <AdminNotifications />;
         const state = pageState[activeTab];
         if (!state) return null;
 
@@ -317,15 +322,17 @@ function AdminPage() {
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                         <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable"
                             scrollButtons="auto">
-                            <Tab label="All Containers" value="containers" icon={<ListAltIcon />} iconPosition="start" />
-                            <Tab label="All Projects" value="projects" icon={<FolderIcon />} iconPosition="start" />
+                            <Tab label="Containers" value="containers" icon={<ListAltIcon />} iconPosition="start" />
+                            <Tab label="Projects" value="projects" icon={<FolderIcon />} iconPosition="start" />
                             <Tab label="Local Users" value="users" icon={<GroupIcon />} iconPosition="start" />
                             <Tab label="Groups" value="groups" icon={<SupervisedUserCircleIcon />} iconPosition="start" />
-                            <Tab label="All SSH Keys" value="allSshKeys" icon={<VpnKeyIcon />} iconPosition="start" />
-                            <Tab label="Compute Servers" value="servers" icon={<ComputerIcon />} iconPosition="start" />
+                            <Tab label="SSH Keys" value="allSshKeys" icon={<VpnKeyIcon />} iconPosition="start" />
+                            <Tab label="Servers" value="servers" icon={<ComputerIcon />} iconPosition="start" />
                             <Tab label="Networks" value="networks" icon={<LanguageIcon />} iconPosition="start" />
-                            <Tab label="Static Addresses" value="addresses" icon={<SettingsEthernetIcon />}
+                            <Tab label="Addresses" value="addresses" icon={<SettingsEthernetIcon />}
                                 iconPosition="start" />
+                            <Tab label="Notifications" value="notifications" icon={<CampaignIcon />}
+                                iconPosition="start" data-testid="tab-notifications" />
                         </Tabs>
                     </Box>
                 </Paper>
