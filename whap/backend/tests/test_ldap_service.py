@@ -255,3 +255,37 @@ def test_config_rejects_unknown_tls_option():
     from app.config import find_config_problems
     cfg = SimpleNamespace(SECRET_KEY="k", CORS_ORIGINS="http://x", LDAP_TLS_OPTION="SOMETIMES")
     assert any("LDAP_TLS_OPTION" in p for p in find_config_problems(cfg))
+
+
+# --- contact details for notifications ---------------------------------------
+
+def test_contacts_give_each_found_users_address_and_name(app, fake_ldap):
+    from app.services import ldap_service
+    contacts = ldap_service.get_ldap_contacts(["jdoe", "asmith", "ghost"])
+    assert contacts == {"jdoe": {"mail": "jane@x", "name": "Jane Doe"},
+                        "asmith": {"mail": None, "name": "Al Smith"}}
+    assert fake_ldap.searches == [{"base_dn": app.config["LDAP_USER_BASE_DN"],
+                                   "filter": "(|(uid=asmith)(uid=ghost)(uid=jdoe))"}]
+
+
+def test_contacts_are_searched_in_batches(app, fake_ldap, monkeypatch):
+    from app.services import ldap_service
+    monkeypatch.setattr(ldap_service, "CONTACT_BATCH", 2)
+    ldap_service.get_ldap_contacts(["a", "b", "c", "d", "e"])
+    assert len(fake_ldap.searches) == 3
+
+
+def test_no_uids_need_no_directory(app, fake_ldap):
+    from app.services import ldap_service
+    assert ldap_service.get_ldap_contacts([]) == {}
+    assert fake_ldap.connections == []
+
+
+def test_contacts_raise_when_the_directory_cannot_be_asked(app, fake_ldap):
+    from app.services import ldap_service
+    fake_ldap.bad_passwords.add("secret")
+    with pytest.raises(ldap_service.LdapUnavailable):
+        ldap_service.get_ldap_contacts(["jdoe"])
+    app.config["LDAP_BIND_PASSWORD"] = None
+    with pytest.raises(ldap_service.LdapUnavailable):
+        ldap_service.get_ldap_contacts(["jdoe"])

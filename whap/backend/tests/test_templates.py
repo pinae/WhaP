@@ -173,6 +173,7 @@ def test_without_notification_settings_whap_sends_no_email(template_env):
     values = _render_env(template_env)
     assert values["WHAP_URL"] == "https://whap.example.org"
     assert values["TTL_REMINDER_DAYS"] == "7,1"
+    assert values["TIMEZONE"] == "UTC"
     assert not {"SMTP_SERVER", "SENDER_EMAIL", "MATRIX_HOMESERVER_URL", "MATRIX_ACCESS_TOKEN"} & set(values)
 
 

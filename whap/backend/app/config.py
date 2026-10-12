@@ -1,5 +1,6 @@
 import os
 import sys
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dotenv import load_dotenv
 
 # Load .env file from the directory where config.py is located or parent directories
@@ -149,6 +150,8 @@ class Config:
     MATRIX_USER_DOMAIN = os.environ.get('MATRIX_USER_DOMAIN', '')
     # Days before a local container's ttl date that its owner is reminded.
     TTL_REMINDER_DAYS = os.environ.get('TTL_REMINDER_DAYS', '7,1')
+    # Times in notifications are shown in this zone, e.g. "Europe/Berlin".
+    TIMEZONE = os.environ.get('TIMEZONE', 'UTC')
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. Use specific URLs in production!
@@ -219,6 +222,12 @@ def _notification_problems(cfg):
     whap_url = getattr(cfg, 'WHAP_URL', None) or ''
     if whap_url and not whap_url.startswith(('https://', 'http://')):
         problems.append(f"WHAP_URL must start with https:// or http://, got '{whap_url}'.")
+
+    timezone_name = getattr(cfg, 'TIMEZONE', None) or 'UTC'
+    try:
+        ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        problems.append(f"TIMEZONE must be a time zone name such as 'Europe/Berlin', got '{timezone_name}'.")
 
     try:
         reminder_days(getattr(cfg, 'TTL_REMINDER_DAYS', None) or '7,1')

@@ -3,6 +3,7 @@ import subprocess
 import sys
 from app import create_app, db
 from app.models import AnsibleJob, FileOperationJob
+from app.notifications import dispatch
 
 # A file operation that takes longer than this is stuck (an LDAP lookup that
 # never returns, a hung NFS mount); it is failed so the queue moves on.
@@ -51,6 +52,37 @@ def run_file_op(job):
     db.session.expire_all()
 
 
+class Notifier:
+    """Runs run_notifications.py when something is due, never two at once.
+
+    Sending happens in its own process so a slow mail server never holds up
+    Ansible jobs. Checks at most every CHECK_EVERY seconds, and waits
+    BACK_OFF seconds after a run that could not reach LDAP.
+    """
+    CHECK_EVERY = 10
+    BACK_OFF = 60
+
+    def __init__(self, clock=time.monotonic, popen=subprocess.Popen):
+        self.clock = clock
+        self.popen = popen
+        self.process = None
+        self.next_check = 0
+
+    def tick(self):
+        if self.process is not None:
+            status = self.process.poll()
+            if status is None:
+                return  # still sending
+            self.process = None
+            if status != 0:
+                self.next_check = self.clock() + self.BACK_OFF
+        if self.clock() < self.next_check:
+            return
+        self.next_check = self.clock() + self.CHECK_EVERY
+        if dispatch.work_due():
+            self.process = self.popen([sys.executable, 'run_notifications.py'])
+
+
 def fail_interrupted_jobs():
     """Fail the jobs a previous worker left RUNNING.
 
@@ -70,7 +102,10 @@ def run_worker_manager():
     with app.app_context():
         print("Starting Worker Manager...")
         fail_interrupted_jobs()
+        notifier = Notifier()
         while True:
+            notifier.tick()
+
             # Check for Ansible jobs
             ansible_job = next_ansible_job()
             if ansible_job:

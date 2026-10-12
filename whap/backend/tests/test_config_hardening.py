@@ -190,7 +190,7 @@ MATRIX = dict(MATRIX_HOMESERVER_URL="https://matrix.example.org", MATRIX_ACCESS_
     dict(SMTP, SMTP_USERNAME="whap", SMTP_PASSWORD="pw", SMTP_SECURITY="ssl", SMTP_PORT="465"),
     dict(SMTP, SMTP_SECURITY="none", SMTP_PORT="25"),
     MATRIX,
-    dict(TTL_REMINDER_DAYS="14, 7,1", WHAP_URL="https://whap.example.org"),
+    dict(TTL_REMINDER_DAYS="14, 7,1", WHAP_URL="https://whap.example.org", TIMEZONE="Europe/Berlin"),
 ])
 def test_valid_notification_settings_are_accepted(settings):
     from app.config import find_config_problems
@@ -211,6 +211,7 @@ def test_valid_notification_settings_are_accepted(settings):
     (dict(TTL_REMINDER_DAYS="7,0"), "TTL_REMINDER_DAYS"),
     (dict(TTL_REMINDER_DAYS=","), "TTL_REMINDER_DAYS"),
     (dict(WHAP_URL="whap.example.org"), "WHAP_URL must start with"),
+    (dict(TIMEZONE="Middle/Earth"), "TIMEZONE must be a time zone name"),
 ])
 def test_incomplete_or_unsafe_notification_settings_stop_the_start(settings, complaint):
     from app.config import find_config_problems

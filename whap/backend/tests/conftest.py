@@ -233,11 +233,12 @@ def make_project(db):
         # The cc_project_owner_exclusive constraint requires exactly one owner
         # kind. Route tests use local users, so map onto owner_local_user_id.
         if isinstance(owner, LocalUser):
-            owner_local_user_id = owner.id
+            project = Project(name=name, owner_local_user_id=owner.id)
+        elif isinstance(owner, str) and owner.startswith("ldap:"):
+            project = Project(name=name, owner_uid=owner.split(":", 1)[1])
         else:
             # Accept a raw local user id for convenience.
-            owner_local_user_id = int(owner)
-        project = Project(name=name, owner_local_user_id=owner_local_user_id)
+            project = Project(name=name, owner_local_user_id=int(owner))
         db.session.add(project)
         db.session.commit()
         return project

@@ -220,3 +220,47 @@ def get_all_users_in_group():
         return None
     finally:
         _unbind_quietly(conn)
+
+
+class LdapUnavailable(Exception):
+    """The directory could not be asked; the caller should try again later."""
+
+
+CONTACT_BATCH = 50
+
+
+def get_ldap_contacts(uids):
+    """Email address and a name to greet by, for each uid found: {uid: {'mail', 'name'}}.
+
+    One search per CONTACT_BATCH uids. A uid the directory doesn't know is
+    missing from the result. Raises LdapUnavailable if the directory can't be
+    searched, so a notification is not sent to nobody because LDAP was down.
+    """
+    uids = sorted({uid for uid in uids if uid})
+    if not uids:
+        return {}
+    if not _service_config_complete():
+        raise LdapUnavailable("LDAP configuration for service account search is incomplete.")
+
+    contacts = {}
+    conn = None
+    try:
+        conn = _service_bind()
+        for start in range(0, len(uids), CONTACT_BATCH):
+            batch = uids[start:start + CONTACT_BATCH]
+            search_filter = '(|' + ''.join(ldap.filter.filter_format('(uid=%s)', [uid]) for uid in batch) + ')'
+            results = conn.search_s(current_app.config.get('LDAP_USER_BASE_DN'), ldap.SCOPE_SUBTREE,
+                                    search_filter, ['uid', 'mail', 'givenName', 'displayName', 'cn'])
+            for _dn, entry in results:
+                uid = _first(entry, 'uid')
+                if uid in batch:
+                    contacts[uid] = {
+                        'mail': _first(entry, 'mail') or None,
+                        'name': (_first(entry, 'givenName') or _first(entry, 'displayName')
+                                 or _first(entry, 'cn') or uid),
+                    }
+        return contacts
+    except (LdapConfigError, ldap.LDAPError) as e:
+        raise LdapUnavailable(f"LDAP search for contact details failed: {e}") from e
+    finally:
+        _unbind_quietly(conn)

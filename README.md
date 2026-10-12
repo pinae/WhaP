@@ -274,6 +274,14 @@ Configure it under `whap.notifications` in the storage server's host_vars (see
 The backend refuses to start with half a configuration (a server without a
 sender, a token without a homeserver) and logs at start which channels work.
 
+Times in messages are shown in the storage server's `timezone` (host_vars).
+The worker sends: it starts `run_notifications.py` when something is due, one
+run at a time, so a slow mail server never holds up containers. A message that
+fails is tried again after 1 and 10 minutes, then marked failed; one the mail
+server or homeserver refuses for good (an unknown mailbox) is failed at once.
+While LDAP can't be reached, nothing is sent: WhaP waits rather than send to
+nobody.
+
 
 ```shell script
 ansible-playbook plays.example/whap.yml -i hosts
