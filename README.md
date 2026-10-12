@@ -264,8 +264,10 @@ Configure it under `whap.notifications` in the storage server's host_vars (see
   login. Without `smtp`, WhaP sends no email.
 - `matrix`: the homeserver's URL (`https://` only) and an access token of the
   account WhaP sends as. Create an ordinary account for the bot and log it in
-  once to get a token. Optionally `user_domain`, so WhaP can suggest
-  `@<uid>:<user_domain>` to users. Without `matrix`, users cannot connect a
+  once to get a token. Set `user_domain` to the part after the colon in your
+  users' Matrix IDs (e.g. `example.org` for `@jdoe:example.org`): WhaP then
+  fills in `@<LDAP uid>:<user_domain>` for each LDAP user, which they can
+  change in their settings. Without `matrix`, users cannot connect a
   Matrix account.
 - `ttl_reminder_days`: when to remind before a local container expires,
   default `[7, 1]`.

@@ -62,15 +62,24 @@ def test_nonsense_is_refused(client, db, carol, body):
     assert saved(db, carol) is None
 
 
-def test_ldap_users_are_offered_their_matrix_id_on_the_university_server(app, client, mail, homeserver,
-                                                                        directory, login_as, monkeypatch):
+@pytest.mark.parametrize("uid, domain, suggestion", [
+    ("merkepkb", "ruhr-uni-bochum.de", "@merkepkb:ruhr-uni-bochum.de"),
+    ("MerkePKB", "ruhr-uni-bochum.de", "@merkepkb:ruhr-uni-bochum.de"),  # Matrix IDs are lower case
+    ("merkepkb", ":ruhr-uni-bochum.de", "@merkepkb:ruhr-uni-bochum.de"),
+    ("merkepkb", "", None),
+])
+def test_ldap_users_get_their_university_matrix_id_filled_in(app, client, mail, homeserver, directory,
+                                                              login_as, monkeypatch, uid, domain, suggestion):
     monkeypatch.setattr("app.user_management.ldap_service.get_ldap_user_details",
                         lambda uid: {"uid": uid, "uidNumber": "70001", "gidNumber": "70000"})
-    app.config["MATRIX_USER_DOMAIN"] = "matrix.uni.example"
-    login_as("ldap:alice")
-    view = client.get("/api/notification-settings").get_json()
-    assert view["matrix"]["suggestion"] == "@alice:matrix.uni.example"
-    assert view["email"]["address"] == "alice@uni.example"
+    app.config["MATRIX_USER_DOMAIN"] = domain
+    login_as(f"ldap:{uid}")
+    assert client.get("/api/notification-settings").get_json()["matrix"]["suggestion"] == suggestion
+
+
+def test_local_users_get_no_matrix_id_filled_in(app, client, carol):
+    app.config["MATRIX_USER_DOMAIN"] = "ruhr-uni-bochum.de"
+    assert client.get("/api/notification-settings").get_json()["matrix"]["suggestion"] is None
 
 
 # --- the risk acknowledgement ------------------------------------------------
@@ -195,6 +204,19 @@ def test_cancelling_forgets_the_code(client, db, carol, homeserver):
     client.post("/api/notification-settings/matrix", json={"matrix_id": "@carol:uni.example"})
     view = client.delete("/api/notification-settings/matrix/pending").get_json()
     assert view["matrix"]["pending_id"] is None and saved(db, carol).matrix_code_hash is None
+
+
+def test_another_id_replaces_the_connected_one_only_once_verified(client, db, carol, homeserver):
+    connect(client, homeserver)
+    from notification_fixtures import Reply
+    homeserver.replies.extend([Reply(200, {"room_id": "!second:x"}), Reply(200, {"event_id": "$e"})])
+    client.post("/api/notification-settings/matrix", json={"matrix_id": "@carol:other.org"})
+    assert saved(db, carol).matrix_id == "@carol:uni.example", "still the old one"
+
+    view = client.post("/api/notification-settings/matrix/verify", json={"code": code_from(homeserver)}).get_json()
+    assert view["matrix"]["id"] == "@carol:other.org"
+    assert saved(db, carol).matrix_room_id == "!second:x"
+    assert homeserver.calls[-1]["url"].endswith("/rooms/%21new%3Ax/leave"), "the old chat is left"
 
 
 def test_disconnecting_leaves_the_chat(client, db, carol, homeserver):

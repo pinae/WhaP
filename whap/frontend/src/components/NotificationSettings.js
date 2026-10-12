@@ -82,29 +82,18 @@ export function RiskDialog({ open, allOff, onKeep, onConfirm, busy }) {
 
 function MatrixRow({ view, run, busy }) {
     const matrix = view.matrix;
-    const [matrixId, setMatrixId] = useState(matrix.suggestion || '');
+    const [matrixId, setMatrixId] = useState(matrix.id || matrix.suggestion || '');
     const [code, setCode] = useState('');
-    useEffect(() => { if (!matrix.pending_id) setCode(''); }, [matrix.pending_id]);
+    const [changing, setChanging] = useState(false);
+    useEffect(() => {
+        if (!matrix.pending_id) setCode('');
+        if (matrix.pending_id) setChanging(false);
+    }, [matrix.pending_id]);
 
     if (!matrix.available) {
         return (
             <Row icon={<ChatIcon />} title="Matrix">
                 <Typography variant="body2" color="text.secondary">This WhaP has no Matrix bot.</Typography>
-            </Row>
-        );
-    }
-    if (matrix.id) {
-        return (
-            <Row icon={<ChatIcon />} title="Matrix"
-                 action={<Switch checked={matrix.enabled} disabled={busy}
-                                 onChange={e => run('put', URL, { matrix_enabled: e.target.checked })}
-                                 slotProps={{ input: { 'aria-label': 'Matrix', 'data-testid': 'settings-matrix-switch' } }} />}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Typography variant="body2" data-testid="settings-matrix-id">{matrix.id}</Typography>
-                    <Chip size="small" color="success" variant="outlined" icon={<CheckCircleIcon />} label="Connected" />
-                    <Button size="small" disabled={busy} onClick={() => run('delete', `${URL}/matrix`)}
-                            data-testid="settings-matrix-disconnect">Disconnect</Button>
-                </Stack>
             </Row>
         );
     }
@@ -114,6 +103,7 @@ function MatrixRow({ view, run, busy }) {
                 <Typography variant="body2" sx={{ mb: 1.5 }}>
                     WhaP's bot has invited <b>{matrix.pending_id}</b> to a chat and sent a six-digit code.
                     Accept the invitation in your Matrix app and enter the code here.
+                    {matrix.id && <> Until then, notifications still go to {matrix.id}.</>}
                 </Typography>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <TextField size="small" label="Code" value={code} onChange={e => setCode(e.target.value)}
@@ -129,18 +119,39 @@ function MatrixRow({ view, run, busy }) {
             </Row>
         );
     }
+    if (matrix.id && !changing) {
+        return (
+            <Row icon={<ChatIcon />} title="Matrix"
+                 action={<Switch checked={matrix.enabled} disabled={busy}
+                                 onChange={e => run('put', URL, { matrix_enabled: e.target.checked })}
+                                 slotProps={{ input: { 'aria-label': 'Matrix', 'data-testid': 'settings-matrix-switch' } }} />}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Typography variant="body2" data-testid="settings-matrix-id">{matrix.id}</Typography>
+                    <Chip size="small" color="success" variant="outlined" icon={<CheckCircleIcon />} label="Connected" />
+                    <Button size="small" disabled={busy} onClick={() => { setMatrixId(matrix.id); setChanging(true); }}
+                            data-testid="settings-matrix-change">Change</Button>
+                    <Button size="small" disabled={busy} onClick={() => run('delete', `${URL}/matrix`)}
+                            data-testid="settings-matrix-disconnect">Disconnect</Button>
+                </Stack>
+            </Row>
+        );
+    }
+    const isSuggestion = matrix.suggestion && matrixId.trim() === matrix.suggestion;
     return (
         <Row icon={<ChatIcon />} title="Matrix">
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Optional. Get the same notifications as a chat message from WhaP's bot.
+                {matrix.id ? `Connected: ${matrix.id}. Enter the Matrix ID to use instead.`
+                    : "Optional. Get the same notifications as a chat message from WhaP's bot."}
             </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <TextField size="small" label="Matrix ID" placeholder="@you:matrix.example.org" value={matrixId}
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
+                <TextField size="small" label="Matrix ID" placeholder="@you:example.org" value={matrixId}
                            onChange={e => setMatrixId(e.target.value)} sx={{ width: 320, maxWidth: '100%' }}
+                           helperText={isSuggestion ? 'Your university account. Change it if yours is different.' : ' '}
                            slotProps={{ htmlInput: { 'data-testid': 'settings-matrix-input' } }} />
-                <Button variant="outlined" disabled={busy || !matrixId.trim()}
+                <Button variant="outlined" disabled={busy || !matrixId.trim() || matrixId.trim() === matrix.id}
                         onClick={() => run('post', `${URL}/matrix`, { matrix_id: matrixId.trim() })}
-                        data-testid="settings-matrix-connect">Connect</Button>
+                        data-testid="settings-matrix-connect" sx={{ mt: '2px' }}>Connect</Button>
+                {matrix.id && <Button onClick={() => setChanging(false)} sx={{ mt: '2px' }}>Cancel</Button>}
             </Stack>
         </Row>
     );

@@ -130,3 +130,28 @@ test('without an address the user is told why', async () => {
     expect(screen.getByTestId('settings-test')).toBeDisabled();
     expect(screen.getByTestId('notifications-off-banner')).toBeInTheDocument();
 });
+
+test('the university ID is filled in and can be changed, even once connected', async () => {
+    const connected = view({ matrix: { ...view().matrix, id: '@alice:matrix.uni.example', enabled: true } });
+    await shown(connected);
+    expect(screen.getByTestId('settings-matrix-id')).toHaveTextContent('@alice:matrix.uni.example');
+
+    fireEvent.click(screen.getByTestId('settings-matrix-change'));
+    const input = screen.getByTestId('settings-matrix-input');
+    expect(input).toHaveValue('@alice:matrix.uni.example');
+    expect(screen.getByTestId('settings-matrix-connect')).toBeDisabled();  // nothing changed yet
+
+    api.post.mockResolvedValueOnce({ data: view({ matrix: { ...connected.matrix, pending_id: '@alice:other.org' } }) });
+    fireEvent.change(input, { target: { value: '@alice:other.org' } });
+    fireEvent.click(screen.getByTestId('settings-matrix-connect'));
+    expect(api.post).toHaveBeenCalledWith('/api/notification-settings/matrix', { matrix_id: '@alice:other.org' });
+    expect(await screen.findByText(/Until then, notifications still go to @alice:matrix.uni.example/))
+        .toBeInTheDocument();
+});
+
+test('the filled-in ID says where it comes from', async () => {
+    await shown();
+    expect(screen.getByText(/Your university account. Change it if yours is different./)).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('settings-matrix-input'), { target: { value: '@me:matrix.org' } });
+    expect(screen.queryByText(/Your university account/)).not.toBeInTheDocument();
+});

@@ -150,8 +150,8 @@ class Config:
     # Without both, users cannot connect a Matrix account.
     MATRIX_HOMESERVER_URL = os.environ.get('MATRIX_HOMESERVER_URL', '').rstrip('/')
     MATRIX_ACCESS_TOKEN = os.environ.get('MATRIX_ACCESS_TOKEN')
-    # Optional: the server part of users' Matrix IDs, e.g. "matrix.example.org",
-    # to suggest "@<uid>:matrix.example.org" in the settings.
+    # Optional: the part after the colon in users' Matrix IDs, e.g. "example.org".
+    # LDAP users' settings then start with "@<uid>:example.org" filled in.
     MATRIX_USER_DOMAIN = os.environ.get('MATRIX_USER_DOMAIN', '')
     # Days before a local container's ttl date that its owner is reminded.
     TTL_REMINDER_DAYS = os.environ.get('TTL_REMINDER_DAYS', '7,1')

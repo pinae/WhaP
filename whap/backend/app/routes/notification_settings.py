@@ -65,9 +65,11 @@ def _protected(settings, email):
 
 
 def _suggested_matrix_id():
-    domain = current_app.config.get('MATRIX_USER_DOMAIN')
+    """@<LDAP uid>:<MATRIX_USER_DOMAIN>: on a university homeserver, the ID a user most likely has."""
+    domain = (current_app.config.get('MATRIX_USER_DOMAIN') or '').strip().lstrip('@:')
     if domain and current_user.user_type == 'ldap':
-        return f"@{current_user.username}:{domain}"
+        # Matrix user IDs are lower case.
+        return f"@{current_user.username.lower()}:{domain}"
     return None
 
 
@@ -214,6 +216,7 @@ def verify_matrix():
         db.session.commit()
         return jsonify({'message': 'That is not the code WhaP sent.'}), 400
 
+    old_room = settings.matrix_room_id
     settings.matrix_id = settings.matrix_pending_id
     settings.matrix_room_id = settings.matrix_pending_room_id
     settings.matrix_enabled = True
@@ -224,6 +227,8 @@ def verify_matrix():
     if _protected(settings, email):
         settings.all_off_acknowledged_at = None
     db.session.commit()
+    if old_room and old_room != settings.matrix_room_id:
+        _leave(old_room)  # the account it replaced
     return jsonify(_view(settings, email)), 200
 
 
@@ -249,11 +254,15 @@ def disconnect_matrix():
     settings.matrix_enabled = False
     response = _commit_unless_risky(settings, email, was_protected)
     if response[1] == 200 and room:
-        try:
-            MatrixChannel(current_app.config).leave(room)
-        except DeliveryError as e:  # the chat stays; nothing more is sent to it
-            current_app.logger.info(f"Bot could not leave {room}: {e}")
+        _leave(room)
     return response
+
+
+def _leave(room):
+    try:
+        MatrixChannel(current_app.config).leave(room)
+    except DeliveryError as e:  # the chat stays; nothing more is sent to it
+        current_app.logger.info(f"Bot could not leave {room}: {e}")
 
 
 # --- test -----------------------------------------------------------------------

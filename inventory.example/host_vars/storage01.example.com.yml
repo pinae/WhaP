@@ -49,7 +49,7 @@ whap:
     # matrix:
     #   homeserver_url: "https://matrix.example.com"
     #   access_token: "put_the_bot_access_token_here"   # of the account WhaP sends as
-    #   user_domain: "matrix.example.com"               # suggests @<uid>:matrix.example.com to users
+    #   user_domain: "example.com"   # users' IDs are @<LDAP uid>:example.com; filled in, users can change it
   # Test rigs only: fixtures for the end-to-end tests -- a disposable LDAP
   # directory and a small dataset (whap/e2e/README.md). While enabled, WhaP
   # signs users in against the test directory instead of the ldap block below.
