@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
     Box,
     Typography,
@@ -58,6 +58,7 @@ function UserPage() {
     const [userPermissions, setUserPermissions] = useState(null);
     const [allServers, setAllServers] = useState([]);
     const [allImages, setAllImages] = useState([]);
+    const [notificationsOff, setNotificationsOff] = useState(false);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', subTitle: '', onConfirm: () => { } });
 
     const { username, isAdmin, logout } = useContext(AuthContext);
@@ -131,6 +132,9 @@ function UserPage() {
             }
         };
         fetchModalData();
+        api.get('/api/notification-settings')
+            .then(r => setNotificationsOff(!r.data.protects_data))
+            .catch(() => {});  // the settings page shows its own errors
     }, [fetchData]);
 
     // --- Event Handlers ---
@@ -323,6 +327,14 @@ function UserPage() {
         <>
             <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
                 <Header title="User Panel" />
+
+                {notificationsOff && (
+                    <Alert severity="warning" sx={{ mb: 3 }} data-testid="notifications-off-banner"
+                           action={<Button color="inherit" size="small" component={RouterLink} to="/settings">
+                               Settings</Button>}>
+                        WhaP can't warn you before your containers are stopped or your local data is deleted.
+                    </Alert>
+                )}
 
                 <Paper>
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>

@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, or_
 from datetime import datetime, timedelta, timezone
 from ..models import LocalUser, LdapUserCache, Project, GroupMembership, UserSSHKey, ContainerInstance
-from ..services import ldap_service, notification_service, volume_service
+from ..services import ldap_service, volume_service
 from .. import admin_required
 from .. import db
 
@@ -274,59 +274,3 @@ def admin_delete_user(user_id):
         db.session.rollback()
         current_app.logger.error(f"Admin failed to delete user {user_id}: {e}", exc_info=True)
         return jsonify({"message": "Failed to delete user"}), 500
-
-
-@user_bp.route('/notification-preferences', methods=['GET'])
-@login_required
-def get_notification_preferences():
-    """Get current user's notification preferences."""
-    # For now, we only support email notifications
-    # In the future, this could be extended to include other preferences
-    user_id = current_user.get_id()
-
-    # Get email address for the user
-    email = notification_service.get_user_email(user_id)
-
-    # For now, we'll just return whether email is available
-    # In a more complete implementation, we would return actual preferences
-    return jsonify({
-        'email_enabled': email is not None,
-        'email': email
-    })
-
-
-@user_bp.route('/notification-preferences', methods=['PUT'])
-@login_required
-def update_notification_preferences():
-    """Update current user's notification preferences."""
-    data = request.get_json()
-
-    # Validate input
-    if not isinstance(data, dict):
-        return jsonify({"message": "Invalid input data"}), 400
-
-    # For now, we only support enabling/disabling email notifications
-    # In a more complete implementation, we would handle more preferences
-    user_id = current_user.get_id()
-
-    # Get current email
-    current_email = notification_service.get_user_email(user_id)
-
-    # If email is being enabled and we have an email address, we can enable notifications
-    if data.get('email_enabled', False) and current_email:
-        # In a real implementation, we would store these preferences in a database table
-        # For now, we just return success
-        return jsonify({
-            "message": "Notification preferences updated successfully",
-            "email_enabled": True,
-            "email": current_email
-        })
-    elif not data.get('email_enabled', False):
-        # Disable notifications
-        return jsonify({
-            "message": "Notification preferences updated successfully",
-            "email_enabled": False,
-            "email": current_email
-        })
-    else:
-        return jsonify({"message": "Cannot enable notifications: no email address found"}), 400

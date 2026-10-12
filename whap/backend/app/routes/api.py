@@ -10,6 +10,7 @@ from .users import user_bp
 from .networks import ntwrk_bp
 from .stats import stat_bp
 from .docs import docs_bp
+from .notification_settings import nset_bp
 
 bp = Blueprint('api', __name__)
 bp.register_blueprint(proj_bp)
@@ -23,3 +24,4 @@ bp.register_blueprint(user_bp)
 bp.register_blueprint(ntwrk_bp)
 bp.register_blueprint(stat_bp)
 bp.register_blueprint(docs_bp)
+bp.register_blueprint(nset_bp)

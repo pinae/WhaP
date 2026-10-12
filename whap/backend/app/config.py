@@ -36,12 +36,17 @@ def reminder_days(value):
     return days
 
 
+def _setting(cfg, name):
+    """A setting from the Config class or from a Flask app's config (a dict)."""
+    return cfg.get(name) if isinstance(cfg, dict) else getattr(cfg, name, None)
+
+
 def email_configured(cfg):
-    return bool(getattr(cfg, 'SMTP_SERVER', None) and getattr(cfg, 'SENDER_EMAIL', None))
+    return bool(_setting(cfg, 'SMTP_SERVER') and _setting(cfg, 'SENDER_EMAIL'))
 
 
 def matrix_configured(cfg):
-    return bool(getattr(cfg, 'MATRIX_HOMESERVER_URL', None) and getattr(cfg, 'MATRIX_ACCESS_TOKEN', None))
+    return bool(_setting(cfg, 'MATRIX_HOMESERVER_URL') and _setting(cfg, 'MATRIX_ACCESS_TOKEN'))
 
 
 def roles_dirs(roles_path):

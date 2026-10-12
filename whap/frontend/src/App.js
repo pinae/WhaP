@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import UserPage from './pages/UserPage';
 import AdminPage from './pages/AdminPage'; // Import AdminPage
 import DocumentationPage from './pages/DocumentationPage';
+import SettingsPage from './pages/SettingsPage';
 
 // Wrapper for protected routes (standard users and admins)
 function ProtectedRoute() {
@@ -71,6 +72,7 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/user" element={<UserPage />} />
               <Route path="/docs" element={<DocumentationPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
               {/* Add other standard protected routes here */}
             </Route>
 

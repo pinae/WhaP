@@ -19,6 +19,9 @@ os.environ.setdefault("REDIS_PORT", "6379")
 
 import pytest  # noqa: E402
 
+# mail, homeserver, directory: fakes for sending notifications.
+pytest_plugins = ["notification_fixtures"]
+
 from app import create_app, db as _db  # noqa: E402
 from app.config import Config  # noqa: E402
 from app.models import (  # noqa: E402

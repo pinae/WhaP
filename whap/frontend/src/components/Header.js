@@ -12,6 +12,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import MenuIcon from '@mui/icons-material/Menu';
 import LogoutIcon from '@mui/icons-material/Logout';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { AuthContext } from '../contexts/AuthContext';
 
 function Header({ title, onMenuClick }) {
@@ -22,6 +23,7 @@ function Header({ title, onMenuClick }) {
     const isDashboard = location.pathname === '/user';
     const isDocs = location.pathname === '/docs';
     const isAdminPage = location.pathname.startsWith('/admin');
+    const isSettings = location.pathname === '/settings';
 
     return (
         <Box sx={{
@@ -113,6 +115,14 @@ function Header({ title, onMenuClick }) {
                             User Panel
                         </Button>
                     )}
+
+                    <Tooltip title="Settings">
+                        <IconButton component={RouterLink} to="/settings" size="small" sx={{ ml: 1 }}
+                                    color={isSettings ? 'primary' : 'default'} aria-label="Settings"
+                                    data-testid="header-settings">
+                            <SettingsIcon />
+                        </IconButton>
+                    </Tooltip>
 
                     <Tooltip title="Logout">
                         <IconButton onClick={logout} color="default" size="small" sx={{ ml: 1 }}

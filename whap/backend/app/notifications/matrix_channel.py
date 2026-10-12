@@ -56,3 +56,7 @@ class MatrixChannel:
         """Open a direct chat with ``user_id`` and invite them; returns the room id."""
         body = {'preset': 'trusted_private_chat', 'is_direct': True, 'invite': [user_id], 'name': 'WhaP'}
         return self._request('POST', '/createRoom', body)['room_id']
+
+    def leave(self, room_id):
+        """Leave a room, e.g. the chat with a user who disconnected."""
+        self._request('POST', f"/rooms/{quote(room_id, safe='')}/leave", {})
