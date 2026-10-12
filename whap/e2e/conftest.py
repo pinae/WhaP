@@ -132,6 +132,14 @@ def known_state(rig, pytestconfig):
         pytest.exit(problem, returncode=3)
     if not rig.seed_spec.exists():
         pytest.exit(f"Seed spec {rig.seed_spec} not found; copy seed.example.yml and fill it in.", returncode=4)
+    # The whap role writes the e2e dataset into projects_dir/DATASETS. If it is
+    # not there, rig.toml looks for projects in the wrong place, and every test
+    # that checks a directory on the storage server waits for one that never comes.
+    marker = f"{rig.projects_dir}/DATASETS/e2e-dataset/e2e-marker.txt"
+    if rig.on_storage("test", "-f", marker, check=False).returncode != 0:
+        pytest.exit(f"{marker} does not exist on the storage server: [storage] projects_dir in rig.toml "
+                    f"({rig.projects_dir}) must be whap.projects_dir from the storage server's host_vars.",
+                    returncode=4)
     spec = rig.seed_spec.read_text()
     reset_args = ["e2e-reset", *(["--force"] if pytestconfig.getoption("--force-reset") else []), "-"]
     for args in (reset_args, ["e2e-seed", "-"]):

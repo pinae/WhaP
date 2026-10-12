@@ -122,6 +122,7 @@ In **rig.toml**:
   - `shell = []`, since the tests run on victor.
   - `backend_cli` as in the example.
   - `projects_dir` = `whap.projects_dir` from the host_vars, e.g. `/data/projects`.
+    Change both together; the run stops at once if they disagree.
 - `[compute] shell = ["ssh", "tycho"]`, if you set up SSH in step 2.
 - `[container]`:
   - `gpu_name = "2070"`
