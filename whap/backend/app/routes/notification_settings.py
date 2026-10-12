@@ -16,8 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .. import db
 from ..config import email_configured, matrix_configured, reminder_days
 from ..models import NOTIFICATION_TOPICS, NotificationSettings, _iso_utc
-from ..notifications import render
-from ..notifications.email_channel import EmailChannel
+from ..notifications import dispatch, render
 from ..notifications.errors import DeliveryError
 from ..notifications.matrix_channel import MatrixChannel
 from ..services.notification_service import get_user_email
@@ -275,24 +274,10 @@ def send_test():
     email = get_user_email(current_user.get_id())
     settings = NotificationSettings.for_user(current_user.get_id())
     whap_url = (config.get('WHAP_URL') or '').rstrip('/')
-    subject = "Test notification"
     text = ("This is a test from WhaP. If you can read it, notifications reach you here."
             + (f"\n\nChange what WhaP tells you: {whap_url}/settings" if whap_url else ""))
-    results = []
-    for channel in _reachable(settings, email):
-        try:
-            if channel == 'email':
-                with EmailChannel(config) as smtp:
-                    smtp.send(email, f"[WhaP] {subject}", text, render.text_to_html(text))
-                address = email
-            else:
-                MatrixChannel(config).send(settings.matrix_room_id, f"{subject}\n\n{text}",
-                                           f"<p><strong>{subject}</strong></p>\n{render.text_to_html(text)}",
-                                           txn_id=f"whap-test-{secrets.token_hex(8)}")
-                address = settings.matrix_id
-            results.append({'channel': channel, 'address': address, 'ok': True})
-        except DeliveryError as e:
-            results.append({'channel': channel, 'ok': False, 'error': str(e)})
+    results = dispatch.send_directly(email, settings, render.Message(
+        subject="Test notification", text=text, html=render.text_to_html(text)))
     if not results:
         return jsonify({'message': 'No channel is switched on that reaches you.', 'results': []}), 400
     return jsonify({'results': results}), 200

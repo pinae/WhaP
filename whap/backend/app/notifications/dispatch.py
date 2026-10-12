@@ -12,11 +12,13 @@ One process at a time runs this: the worker starts run_notifications.py and
 waits for it to finish before starting another.
 """
 import logging
+import secrets
 from datetime import datetime, timedelta, UTC
 
 from flask import current_app
 
 from .. import db
+from ..config import email_configured, matrix_configured
 from ..models import Notification, NotificationDelivery, NotificationSettings
 from ..services.ldap_service import LdapUnavailable
 from . import audience, render
@@ -182,6 +184,33 @@ def _send_matrix(deliveries, now):
             _failed(delivery, e, now)
         else:
             _succeeded(delivery, now)
+
+
+def send_directly(email, settings, message):
+    """Send ``message`` now, not through the queue, on each channel that reaches a user.
+
+    For test messages. Returns [{channel, address, ok, error?}], empty if no
+    channel reaches them.
+    """
+    config = current_app.config
+    results = []
+    if settings.email_enabled and email and email_configured(config):
+        try:
+            with EmailChannel(config) as channel:
+                channel.send(email, f"[WhaP] {message.subject}", message.text, message.html)
+            results.append({'channel': 'email', 'address': email, 'ok': True})
+        except DeliveryError as e:
+            results.append({'channel': 'email', 'address': email, 'ok': False, 'error': str(e)})
+    if 'matrix' in settings.channels() and matrix_configured(config):
+        try:
+            MatrixChannel(config).send(
+                settings.matrix_room_id, f"{message.subject}\n\n{message.text}",
+                f"<p><strong>{render.html.escape(message.subject)}</strong></p>\n{message.html}",
+                txn_id=f"whap-direct-{secrets.token_hex(8)}")
+            results.append({'channel': 'matrix', 'address': settings.matrix_id, 'ok': True})
+        except DeliveryError as e:
+            results.append({'channel': 'matrix', 'address': settings.matrix_id, 'ok': False, 'error': str(e)})
+    return results
 
 
 def deliver(now=None):

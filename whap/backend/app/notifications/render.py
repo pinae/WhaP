@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from .. import db
 from ..models import ComputeServer, Group
+from .compose import IMPACTS
 
 FIELD = re.compile(r'\{(\w+)\}')
 URL = re.compile(r'(https?://[^\s<>"]+[^\s<>".,;:!?)])')
@@ -82,6 +83,7 @@ def fields_for(notification, recipient, config):
         'server': server_names(params),
         'group': group_names(params),
         'timezone': zone,
+        'impact': IMPACTS.get(params.get('impact'), ''),
     }
     start, end = params.get('start'), params.get('end')
     if start:

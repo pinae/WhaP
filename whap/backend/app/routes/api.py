@@ -11,6 +11,7 @@ from .networks import ntwrk_bp
 from .stats import stat_bp
 from .docs import docs_bp
 from .notification_settings import nset_bp
+from .admin_notifications import notif_bp
 
 bp = Blueprint('api', __name__)
 bp.register_blueprint(proj_bp)
@@ -25,3 +26,4 @@ bp.register_blueprint(ntwrk_bp)
 bp.register_blueprint(stat_bp)
 bp.register_blueprint(docs_bp)
 bp.register_blueprint(nset_bp)
+bp.register_blueprint(notif_bp)
