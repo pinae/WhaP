@@ -33,7 +33,7 @@ path argument makes pytest look for its configuration there) or `WHAP_E2E_RIG`
 to point at another rig file, `--headed` to watch the browser, and
 `--matrix full` to run the container matrix on every role (below).
 
-The modules run in phase order -- identity, one container's lifecycle, then
+The modules run in order -- identity, one container's lifecycle, then
 the matrix -- whatever their file names, so a broken login fails fast.
 
 ### What a failure leaves behind
@@ -64,6 +64,8 @@ container, in about 15 seconds:
   server, owned by the user's LDAP uid and gid and group-writable (`2775`)
 - sharing a project with another user found through the LDAP user search, and
   that share and the e2e dataset being offered as volumes
+- the compute server seeing a new project and the e2e dataset under `/data`,
+  i.e. the storage server's `projects_dir` mounted there (needs `[compute] shell`)
 
 `tests/test_container_lifecycle.py` takes one container through its life. It
 creates it through the form with an SSH key, a password and one GPU, using the
@@ -108,7 +110,7 @@ the form and deleted before the next starts:
 |------------|-----------------------------|------------------|--------------------------------------------|------------------------------------------------------------------------|
 | `key`      | `[container] image`         | SSH key          | the e2e dataset, a project bob shares `ro` | key login; dataset marker readable; neither volume writable            |
 | `password` | `[container] image`         | password         | a project bob shares `rw`                  | password login; the key is refused; alice's file lands in bob's project on the storage server, owned by her |
-| `both`     | every other `worker_` role  | key and password | --                                         | both logins; `nvidia-smi` sees the GPU; `nvtop`, `tmux` and a virtualenv work; the image does what it is for |
+| `both`     | every other `worker_` role  | key and password | --                                         | both logins; `nvidia-smi` sees the GPU; `nvtop`, `tmux` and a virtualenv work; the image does what it is for; a synced role's home reaches the storage server |
 
 `--matrix full` also runs `key` and `password` on every role. `[container]
 image` gets no `both` case: the lifecycle module covers it. `worker_ollama` is

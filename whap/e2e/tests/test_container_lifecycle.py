@@ -1,4 +1,4 @@
-"""Phase 2: one container, from the form to a PyTorch tensor on the GPU, and gone again.
+"""One container, from the form to a PyTorch tensor on the GPU, and gone again.
 
 The module creates a single container through the form, watching its Ansible
 log arrive and reloading the page once mid-job. Each test then checks one

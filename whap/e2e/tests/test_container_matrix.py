@@ -1,7 +1,7 @@
-"""Phases 3 and 4: how a user gets into a container, what it can mount, and every role.
+"""how a user gets into a container, what it can mount, and every role.
 
 Each case is one container, started through the form, then checked from
-inside over SSH. In depth, on ``[container] image`` (Phase 3):
+inside over SSH. In depth, on ``[container] image``:
 
 - ``key``: an SSH key and no password, with the e2e dataset and a project bob
   shared read-only. Both are readable; writing to either is refused.
@@ -9,7 +9,7 @@ inside over SSH. In depth, on ``[container] image`` (Phase 3):
   The key is refused; what alice writes lands in bob's project on the storage
   server, owned by her.
 
-In breadth, on every other worker role in roles/ (Phase 4):
+In breadth, on every other worker role in roles/:
 
 - ``both``: key and password, and the GPU. Both logins work, nvidia-smi sees
   the GPU, the tools users rely on work (USER_TOOLS), and the image does what
@@ -85,7 +85,7 @@ def cases_for(config):
     for role in matrix_roles(config):
         yield Case(role, "key", volumes=("dataset", "share-ro"))
         yield Case(role, "password", volumes=("share-rw",))
-    # Phase 2 already takes [container] image through key, password and the GPU.
+    # test_container_lifecycle.py already takes [container] image through key, password and the GPU.
     primary = rig_for(config).container.image
     for role in worker_roles():
         if role != primary:

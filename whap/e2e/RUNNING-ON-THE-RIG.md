@@ -142,7 +142,7 @@ Each step only makes sense once the previous one passes.
 cd ~/WhaP/whap/e2e
 uv run pytest tests/test_identity.py            # under a minute: LDAP, keys, projects, shares
 uv run pytest tests/test_container_lifecycle.py  # one container end to end; first run builds an image and installs torch
-uv run pytest                                   # everything: ~10 containers, roughly 1-2 h once images exist
+uv run pytest                                   # everything: 10 containers, ~12 min once images exist; the first run builds them all
 uv run pytest --matrix full                     # later: auth and volume cases on every role as well
 ```
 

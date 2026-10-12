@@ -1,4 +1,4 @@
-"""Phase 1: signing in, and the things a user owns -- before any container runs.
+"""Signing in, and the things a user owns -- before any container runs.
 
 Run first; everything later builds on a user who can sign in through LDAP,
 has an SSH key, and owns a project whose directory the worker created.

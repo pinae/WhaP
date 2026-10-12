@@ -40,13 +40,13 @@ def pytest_addoption(parser):
                           "[container] image only, 'full' on every worker role in roles/.")
 
 
-# Phases run in this order, each building on the one before; other modules last.
-PHASES = ["test_identity.py", "test_container_lifecycle.py", "test_container_matrix.py"]
+# The modules run in this order, each building on the one before; others last.
+MODULE_ORDER = ["test_identity.py", "test_container_lifecycle.py", "test_container_matrix.py"]
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_collection_modifyitems(items):
-    """Run phases in order, a matrix case's tests together, and each module's tests as written.
+    """Run the modules in order, a matrix case's tests together, and each module's tests as written.
 
     pytest groups tests that share a module-scoped parameter, but across the
     whole session: it can move one of a case's tests past other modules,
@@ -57,12 +57,12 @@ def pytest_collection_modifyitems(items):
     cases = {}
 
     def position(item):
-        phase = PHASES.index(item.path.name) if item.path.name in PHASES else len(PHASES)
+        module = MODULE_ORDER.index(item.path.name) if item.path.name in MODULE_ORDER else len(MODULE_ORDER)
         callspec = getattr(item, "callspec", None)
         case = callspec.params.get("case") if callspec else None
         # After every case. Not len(items): the list reads as empty while it is being sorted.
         case_index = cases.setdefault(case, len(cases)) if isinstance(case, Hashable) and case else float("inf")
-        return phase, case_index, item.function.__code__.co_firstlineno
+        return module, case_index, item.function.__code__.co_firstlineno
 
     items.sort(key=position)
 
