@@ -252,7 +252,7 @@ include CUDA.
 
 WhaP tells users when a server running their container will restart, when an
 image or dataset they use is updated, and before a local container's directory
-expires. It sends email through your SMTP server, to the address in LDAP (or
+expires. Admins can also write to the members of WhaP groups, or to everyone. It sends email through your SMTP server, to the address in LDAP (or
 the one an admin sets for a local user), and, if users connect one, to their
 Matrix account through a bot.
 

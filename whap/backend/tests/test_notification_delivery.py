@@ -547,3 +547,39 @@ def test_the_sender_reports_an_ldap_outage_to_the_worker(app, db, rig, directory
     directory["down"] = False
     app.config.update(SMTP_SERVER=None, SENDER_EMAIL=None)
     assert run_notifications.main() == 0
+
+
+# --- group notifications ---------------------------------------------------------
+
+def test_a_group_notification_reaches_the_groups_members_only(app, db, rig, directory, make_group, add_member):
+    students = make_group(name="students")
+    staff = make_group(name="staff")
+    add_member(students, "ldap:alice")
+    add_member(students, rig["carol"])
+    add_member(staff, "ldap:dave")
+    db.session.add(NotificationSettings(user_uid="ldap:alice", topic_maintenance=False, topic_expiry=False,
+                                        topic_image=False, topic_dataset=False))
+    notification = Notification(kind="group", status="scheduled", subject="Hello {group}",
+                                body="Hi {name}\n{containers}")
+    notification.params_dict = {"group_ids": [students.id]}
+    db.session.add(notification)
+    db.session.commit()
+
+    found = audience.recipients(notification)
+    assert [r.username for r in found] == ["alice", "carol"]
+    assert len(found[0].containers) == 2, "their containers can still be listed"
+    assert found[0].channels() == [("email", "alice@uni.example")], "topics don't apply"
+
+
+def test_a_group_message_says_which_group(app, db, rig, directory, mail, make_group, add_member):
+    students = make_group(name="students")
+    add_member(students, "ldap:alice")
+    notification = Notification(kind="group", status="scheduled", subject="Hello {group}", body="Hi {name}")
+    notification.params_dict = {"group_ids": [students.id]}
+    db.session.add(notification)
+    db.session.commit()
+    dispatch.run_once(NOW)
+    [message] = mail.messages
+    assert message["Subject"] == "[WhaP] Hello students"
+    assert "You get this because you are a member of the WhaP group students." in \
+        message.get_body(("plain",)).get_content()

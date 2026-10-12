@@ -3,7 +3,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .. import db
-from ..models import ContainerInstance, ContainerMount, LocalUser, NotificationSettings
+from ..models import ContainerInstance, ContainerMount, GroupMembership, LocalUser, NotificationSettings
 from ..services.ldap_service import LdapUnavailable, get_all_users_in_group, get_ldap_contacts
 
 
@@ -53,8 +53,10 @@ def _containers(notification):
         query = query.where(ContainerInstance.mounts.any(ContainerMount.dataset == params.get('dataset')))
     elif notification.kind == 'expiry':
         query = query.where(ContainerInstance.id == params.get('container_id'))
-    elif notification.kind == 'announcement':
-        pass  # everyone; their containers are listed but not what makes them recipients
+    elif notification.kind in ('announcement', 'group'):
+        # Recipients are chosen otherwise (_everyone, _members); their
+        # containers are listed but don't make them recipients.
+        pass
     return db.session.scalars(query.order_by(ContainerInstance.id)).all()
 
 
@@ -68,6 +70,12 @@ def _everyone():
     return uids
 
 
+def _members(group_ids):
+    """The members of these WhaP groups."""
+    return set(db.session.scalars(
+        db.select(GroupMembership.user_uid).where(GroupMembership.group_id.in_(group_ids or []))))
+
+
 def recipients(notification):
     """Everyone ``notification`` concerns, reachable or not, by username.
 
@@ -77,9 +85,12 @@ def recipients(notification):
     by_user = defaultdict(list)
     for container in _containers(notification):
         by_user[container.owner_identifier].append(container)
-    uids = set(by_user)
     if notification.kind == 'announcement':
-        uids |= _everyone()
+        uids = _everyone() | set(by_user)
+    elif notification.kind == 'group':
+        uids = _members(notification.params_dict.get('group_ids'))
+    else:
+        uids = set(by_user)
 
     ldap_uids = [uid.split(':', 1)[1] for uid in uids if uid.startswith('ldap:')]
     contacts = get_ldap_contacts(ldap_uids)

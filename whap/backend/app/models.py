@@ -596,16 +596,18 @@ class ContainerMount(db.Model):
 
 # --- Notifications ---------------------------------------------------------
 
-# What a user can switch on and off. Announcements to everyone have no topic:
-# they reach everyone on the channels they have switched on.
+# What a user can switch on and off. Announcements to everyone and messages to
+# a WhaP group have no topic: they reach their recipients on every channel
+# switched on.
 NOTIFICATION_TOPICS = ('maintenance', 'expiry', 'image', 'dataset')
-# kind -> topic; 'announcement' maps to None.
+# kind -> topic; 'announcement' and 'group' map to None.
 NOTIFICATION_KINDS = {
     'maintenance': 'maintenance',
     'image': 'image',
     'dataset': 'dataset',
     'expiry': 'expiry',
     'announcement': None,
+    'group': None,
 }
 NOTIFICATION_CHANNELS = ('email', 'matrix')
 
@@ -682,7 +684,8 @@ class NotificationSettings(db.Model):
 
 
 class Notification(db.Model):
-    """A message to the users a server, image, dataset or expiry concerns, or to everyone.
+    """A message to the users a server, image, dataset or expiry concerns, to the
+    members of WhaP groups, or to everyone.
 
     Admins write all kinds but 'expiry', which the worker creates per container.
     """
@@ -695,7 +698,8 @@ class Notification(db.Model):
     body = db.Column(db.Text, nullable=False, default='')  # a template: {name}, {containers}, ...
     # What it is about and the fields its template uses, as JSON:
     # maintenance {"server_ids": [..], "start": iso, "end": iso, "impact": "stopped"},
-    # image {"image": "worker_..."}, dataset {"dataset": "coco"}, expiry {"container_id": n, ...}.
+    # image {"image": "worker_..."}, dataset {"dataset": "coco"}, group {"group_ids": [..]},
+    # expiry {"container_id": n, ...}.
     params = db.Column(db.Text, nullable=False, default='{}')
     send_at = db.Column(db.DateTime(timezone=True), nullable=True)  # NULL: as soon as scheduled
     remind_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -714,7 +718,7 @@ class Notification(db.Model):
                                  cascade="all, delete-orphan", lazy='dynamic')
 
     __table_args__ = (
-        db.CheckConstraint("kind IN ('maintenance', 'image', 'dataset', 'expiry', 'announcement')",
+        db.CheckConstraint("kind IN ('maintenance', 'image', 'dataset', 'expiry', 'announcement', 'group')",
                            name='cc_notification_kind'),
         db.CheckConstraint("status IN ('draft', 'scheduled', 'sending', 'sent', 'cancelled')",
                            name='cc_notification_status'),

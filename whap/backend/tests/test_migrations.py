@@ -109,3 +109,12 @@ def test_the_notification_migration_can_be_undone(empty_db):
     tables = {r[0] for r in sql("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
     assert not tables & {"notification", "notification_delivery", "notification_settings", "container_mount"}
     upgrade(directory=MIGRATIONS)
+
+
+def test_group_notifications_are_allowed_after_the_upgrade(empty_db):
+    upgrade(directory=MIGRATIONS)
+    sql("INSERT INTO notification (kind, status, subject, body, params) "
+        "VALUES ('group', 'draft', '', '', '{\"group_ids\": [1]}')")
+    with pytest.raises(Exception):
+        sql("INSERT INTO notification (kind, status, subject, body, params) VALUES ('newsletter', 'draft', '', '', '{}')")
+    _db.session.rollback()

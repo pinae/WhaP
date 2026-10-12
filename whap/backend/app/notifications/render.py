@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .. import db
-from ..models import ComputeServer
+from ..models import ComputeServer, Group
 
 FIELD = re.compile(r'\{(\w+)\}')
 URL = re.compile(r'(https?://[^\s<>"]+[^\s<>".,;:!?)])')
@@ -53,6 +53,14 @@ def server_names(params):
     return ', '.join(names)
 
 
+def group_names(params):
+    """The names of a group notification's WhaP groups."""
+    ids = params.get('group_ids') or []
+    if not ids:
+        return ''
+    return ', '.join(db.session.scalars(db.select(Group.name).where(Group.id.in_(ids)).order_by(Group.name)))
+
+
 def container_lines(containers):
     return '\n'.join(f"  • {c.project.name if c.project else '?'} ({c.image_name}) on "
                      f"{c.compute_server.hostname if c.compute_server else '?'}" for c in containers)
@@ -72,6 +80,7 @@ def fields_for(notification, recipient, config):
         'image': params.get('image', ''),
         'dataset': params.get('dataset', ''),
         'server': server_names(params),
+        'group': group_names(params),
         'timezone': zone,
     }
     start, end = params.get('start'), params.get('end')
@@ -92,6 +101,7 @@ def why(notification):
         'dataset': f"You get this because your containers mount the dataset {params.get('dataset', '')}.",
         'expiry': "You get this because you asked to be reminded before local containers expire.",
         'announcement': "WhaP sends announcements to everyone who uses it.",
+        'group': f"You get this because you are a member of the WhaP group {group_names(params)}.",
     }[notification.kind]
 
 
