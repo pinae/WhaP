@@ -6,10 +6,15 @@
     group: "{{ service_cfg.group_id }}"
     mode: "775"
 
+# The project on the storage server (NFS). 2775 as WhaP creates it
+# (PROJECT_DIR_MODE): a project shared read-write must stay writable for the
+# group. 755 here took that away again whenever the owner started a container.
+# Changing owner and mode needs root on the export: no_root_squash for the
+# compute servers.
 - name: "Ensure /data/{{ service_cfg.user }}/{{ service_cfg.project_name }} exists"
   file:
     path: "/data/{{ service_cfg.user }}/{{ service_cfg.project_name }}"
     state: directory
     owner: "{{ service_cfg.user_id }}"
     group: "{{ service_cfg.group_id }}"
-    mode: "755"
+    mode: "2775"

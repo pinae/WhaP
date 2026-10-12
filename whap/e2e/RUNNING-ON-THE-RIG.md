@@ -74,6 +74,10 @@ Check that it worked:
   `curl -s https://<your WhaP domain>/auth/session` prints `{"isLoggedIn":false,...}`
   at once. If it hangs, or `docker ps` shows `whap-backend` restarting,
   `docker logs whap-backend` names the configuration problem.
+- victor's `projects_dir` is mounted at `/data` on tycho over NFS, and exported
+  **without root squashing**. The roles create and hand over directories there as
+  root. In victor's `/etc/exports`, e.g.
+  `/data/NFS tycho(rw,sync,no_subtree_check,no_root_squash)`, then `exportfs -ra`.
 - On tycho, Docker can use the GPU:
   `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
 - If you use the registry for the 2510 roles, its images are pushed.
@@ -169,6 +173,7 @@ What to suspect first:
 | Container reaches RUNNING, SSH times out | the IPs in seed.yml are not reachable from victor (wrong subnet, or the tests run on tycho) |
 | Container ends in ERROR | `job.log`: often an image build, a registry pull, or the GPU (nvidia-container-toolkit) |
 | `test_the_compute_server_sees_the_projects_and_datasets` fails, or a share is "a placeholder Docker made" | tycho's `/data` is not victor's `projects_dir`: mount it over NFS (worker host_vars `nfs`), so that `/data/<user>/<project>` and `/data/DATASETS` on tycho are the directories on victor |
+| Every container ends in ERROR at "Ensure /data/<user> exists": `chown failed: Operation not permitted` | the NFS export squashes root: add `no_root_squash` for tycho on victor and run `exportfs -ra` |
 | PyTorch test fails on CUDA | `[torch] index_url` does not match the driver |
 | `worker_synced_nvidia_pytorch1906` "image does what it is for" fails | expected: its conda Python is probably not on PATH in SSH sessions; please send me the output |
 
