@@ -172,7 +172,6 @@ function AdminPage() {
     const handleSaveContainer = createSaveHandler('container', 'containers');
     const handleSaveProject = createSaveHandler('project', 'projects');
     const handleSaveSshKey = createSaveHandler('sshKey', 'sshkeys');
-    const handleSaveUser = createSaveHandler('user', 'users');
     const handleSaveServer = createSaveHandler('server', 'servers');
     const handleSaveNetwork = createSaveHandler('network', 'networks');
     const handleSaveAddress = createSaveHandler('address', 'static_addresses');
@@ -364,7 +363,8 @@ function AdminPage() {
             <LocalUserModal
                 open={modalState.user.open}
                 onClose={() => closeModal('user')}
-                onSave={handleSaveUser}
+                // The modal saves the user itself; this only refreshes the list.
+                onSave={() => fetchData('users')}
                 userToEdit={modalState.user.item}
                 loading={modalLoading}
                 error={modalError}

@@ -1,3 +1,4 @@
+import re
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func, or_
@@ -90,6 +91,19 @@ def get_shared_volumes():
     return jsonify(sorted_volumes)
 
 
+EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def _email_from(data):
+    """The optional 'email' of a request as (address or None, error or None)."""
+    email = (data.get('email') or '').strip()
+    if not email:
+        return None, None
+    if len(email) > 255 or not EMAIL_PATTERN.match(email):
+        return None, f"'{email}' is not an email address."
+    return email, None
+
+
 @user_bp.route('/admin/users', methods=['GET'])
 @login_required
 @admin_required
@@ -98,7 +112,7 @@ def admin_get_users():
     try:
         # Only listing Local users for now
         users = db.session.scalars(db.select(LocalUser).order_by(LocalUser.username)).all()
-        return jsonify([u.to_dict() for u in users]), 200
+        return jsonify([u.to_dict(include_email=True) for u in users]), 200
     except Exception as e:
         current_app.logger.error(f"Admin failed to get users: {e}")
         return jsonify(message="Failed to retrieve users"), 500
@@ -118,12 +132,15 @@ def admin_create_user():
         return jsonify({"message": "Username and password are required"}), 400
     if len(password) < 8:
         return jsonify({"message": "Password must be at least 8 characters long"}), 400
+    email, email_error = _email_from(data)
+    if email_error:
+        return jsonify({"message": email_error}), 400
 
     if db.session.scalar(db.select(LocalUser).filter(func.lower(LocalUser.username) == func.lower(username))):
         return jsonify({"message": f"Username '{username}' already exists."}), 409
 
     try:
-        new_user = LocalUser(username=username.strip())
+        new_user = LocalUser(username=username.strip(), email=email)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
@@ -140,7 +157,7 @@ def admin_create_user():
             db.session.commit()
         current_app.logger.info(f"Admin {current_user.username} created LocalUser: {username}")
         # Return new user data, excluding password hash
-        return jsonify(new_user.to_dict()), 201
+        return jsonify(new_user.to_dict(include_email=True)), 201
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Admin failed to create local user '{username}': {e}", exc_info=True)
@@ -168,6 +185,12 @@ def admin_update_user(user_id):
         if existing:
             return jsonify({"message": f"Username '{new_username}' is already taken."}), 409
         user_to_edit.username = new_username.strip()
+
+    if 'email' in data:
+        email, email_error = _email_from(data)
+        if email_error:
+            return jsonify({"message": email_error}), 400
+        user_to_edit.email = email
 
     # Handle admin status change
     if 'is_admin' in data:
@@ -207,7 +230,7 @@ def admin_update_user(user_id):
     try:
         db.session.commit()
         current_app.logger.info(f"Admin {current_user.username} updated LocalUser ID {user_id}")
-        return jsonify(user_to_edit.to_dict()), 200
+        return jsonify(user_to_edit.to_dict(include_email=True)), 200
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Admin failed to update local user {user_id}: {e}", exc_info=True)

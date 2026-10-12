@@ -3,6 +3,8 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import current_app
+from .. import db
+from ..models import LocalUser
 from .ldap_service import get_ldap_user_details
 
 def send_notification_email(to_email, subject, body):
@@ -24,7 +26,7 @@ def send_notification_email(to_email, subject, body):
     try:
         # Get email configuration from Flask app config
         smtp_server = current_app.config.get('SMTP_SERVER')
-        smtp_port = current_app.config.get('SMTP_PORT', 587)
+        smtp_port = int(current_app.config.get('SMTP_PORT') or 587)
         smtp_username = current_app.config.get('SMTP_USERNAME')
         smtp_password = current_app.config.get('SMTP_PASSWORD')
         sender_email = current_app.config.get('SENDER_EMAIL')
@@ -79,9 +81,11 @@ def get_user_email(user_id_str):
         return None
 
     if prefix == 'local':
-        # For local users, we would need to get their email from the database
-        # This is a placeholder - you would need to implement this based on your schema
-        return None
+        try:
+            user = db.session.get(LocalUser, int(actual_id))
+        except ValueError:
+            return None
+        return user.email if user else None
         
     elif prefix == 'ldap':
         # For LDAP users, get details from LDAP and extract email

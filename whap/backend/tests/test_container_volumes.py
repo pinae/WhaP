@@ -149,3 +149,22 @@ def test_shared_volumes_lists_own_project(client, db, volume_env):
     own = next(v for v in resp.get_json() if v["name"] == "My Project: thesis")
     assert own["host_path"] == volume_env["own_project_path"]
     assert own["is_writable"] is True
+
+
+def test_create_records_what_the_container_mounts(client, db, app, volume_env):
+    """Kept as rows so WhaP can later tell who uses a dataset."""
+    dataset = os.path.join(app.config["DATASETS_BASE_PATH"], "coco")
+    os.makedirs(dataset)
+    resp = client.post(
+        "/api/containers",
+        json=_create_payload(volume_env, [
+            {"host_path": dataset, "container_path": "/mnt/coco", "is_writable": False},
+            {"host_path": volume_env["own_project_path"], "container_path": "/mnt/data", "is_writable": True},
+        ]),
+    )
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    container = db.session.get(ContainerInstance, resp.get_json()["container"]["id"])
+    assert sorted((m.host_path, m.container_path, m.writable, m.dataset) for m in container.mounts) == sorted([
+        (dataset, "/mnt/coco", False, "coco"),
+        (volume_env["own_project_path"], "/mnt/data", True, None),
+    ])

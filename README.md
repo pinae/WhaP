@@ -248,7 +248,32 @@ registry. Leave it empty and each compute server builds them itself, the first
 time a container of the role starts there; that takes a while, as the images
 include CUDA.
 
-## Run the playbook
+### Notifications (optional)
+
+WhaP tells users when a server running their container will restart, when an
+image or dataset they use is updated, and before a local container's directory
+expires. It sends email through your SMTP server, to the address in LDAP (or
+the one an admin sets for a local user), and, if users connect one, to their
+Matrix account through a bot.
+
+Configure it under `whap.notifications` in the storage server's host_vars (see
+`inventory.example/host_vars/storage01.example.com.yml`):
+
+- `smtp`: server, port, `security` (`starttls`, `ssl` or `none`), sender
+  address, and a username and password unless the server is a relay without
+  login. Without `smtp`, WhaP sends no email.
+- `matrix`: the homeserver's URL (`https://` only) and an access token of the
+  account WhaP sends as. Create an ordinary account for the bot and log it in
+  once to get a token. Optionally `user_domain`, so WhaP can suggest
+  `@<uid>:<user_domain>` to users. Without `matrix`, users cannot connect a
+  Matrix account.
+- `ttl_reminder_days`: when to remind before a local container expires,
+  default `[7, 1]`.
+- `url`: WhaP's address for links in messages, default `https://<domain>`.
+
+The backend refuses to start with half a configuration (a server without a
+sender, a token without a homeserver) and logs at start which channels work.
+
 
 ```shell script
 ansible-playbook plays.example/whap.yml -i hosts
@@ -299,6 +324,13 @@ uv run pytest
 ```
 
 This runs everything under `whap/backend/tests/` with verbose output (configured in `pyproject.toml`).
+
+The suite uses SQLite. To run it against Postgres, as production does, set
+`WHAP_TEST_DATABASE_URL`, e.g. `postgresql://whap:whap@localhost/whap_test`.
+The schema there is created from the models; `tests/test_migrations.py` runs the
+migrations themselves, which only work on Postgres, against the database in
+`WHAP_TEST_MIGRATION_DATABASE_URL`. Use a scratch database: those tests drop
+everything in it.
 
 ### Coverage
 

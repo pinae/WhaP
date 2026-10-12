@@ -74,13 +74,7 @@ class TestNotificationSystem(unittest.TestCase):
         self.assertIsNone(result)
         mock_get_details.assert_called_once_with('jdoe')
 
-    def test_get_user_email_local_user(self):
-        """Test getting email for local user (placeholder)."""
-        # For local users, this would need to be implemented based on your schema
-        result = get_user_email('local:1')
-
-        # This should return None for now since we don't have local user email implementation
-        self.assertIsNone(result)
+    # Local users' addresses come from the database: test_notification_models.py.
 
     def test_get_user_email_invalid_format(self):
         """Test getting email for invalid user ID format."""

@@ -18,6 +18,7 @@ import api from '../services/api';
 function LocalUserModal({open, onClose, onSave, userToEdit}) {
     const [formData, setFormData] = useState({
         username: '',
+        email: '',
         password: '',
         confirmPassword: '',
         is_admin: false
@@ -30,12 +31,13 @@ function LocalUserModal({open, onClose, onSave, userToEdit}) {
         if (isEditMode && userToEdit) {
             setFormData({
                 username: userToEdit.username || '',
+                email: userToEdit.email || '',
                 password: '', // Password is not pre-filled for editing
                 confirmPassword: '',
                 is_admin: userToEdit.is_admin || false,
             });
         } else {
-            setFormData({username: '', password: '', confirmPassword: '', is_admin: false});
+            setFormData({username: '', email: '', password: '', confirmPassword: '', is_admin: false});
         }
         setError('');
     }, [open, userToEdit, isEditMode]);
@@ -77,6 +79,7 @@ function LocalUserModal({open, onClose, onSave, userToEdit}) {
             // Don't send empty password field on edit
             const payload = {
                 username: formData.username.trim(),
+                email: formData.email.trim(),
                 is_admin: formData.is_admin,
             };
             if (formData.password) {
@@ -110,6 +113,10 @@ function LocalUserModal({open, onClose, onSave, userToEdit}) {
                     <TextField autoFocus margin="dense" id="username" name="username" label="Username" type="text"
                                fullWidth variant="outlined" value={formData.username} onChange={handleInputChange}
                                disabled={loading} required sx={{mb: 2}}/>
+                    <TextField margin="dense" id="email" name="email" label="Email (optional)" type="email"
+                               fullWidth variant="outlined" value={formData.email} onChange={handleInputChange}
+                               disabled={loading} sx={{mb: 2}}
+                               helperText="Where WhaP sends this user's notifications."/>
                     <TextField margin="dense" id="password" name="password"
                                label={isEditMode ? "New Password (Optional)" : "Password"} type="password" fullWidth
                                variant="outlined" value={formData.password} onChange={handleInputChange}

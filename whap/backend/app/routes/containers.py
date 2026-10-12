@@ -321,7 +321,8 @@ def create_container():
             static_address_id=assigned_address.id,
             directory_path=container_directory,
             cpu_limit=cpu_limit,
-            ttl_date=ttl_date
+            ttl_date=ttl_date,
+            mounts=volume_service.mounts_for(additional_volumes),
         )
         db.session.add(container)
         db.session.commit()

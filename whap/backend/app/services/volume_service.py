@@ -13,7 +13,7 @@ from flask import current_app
 from sqlalchemy.orm import selectinload
 
 from .. import db
-from ..models import Project, ProjectShare, GroupMembership
+from ..models import Project, ProjectShare, GroupMembership, ContainerMount
 
 
 def _nfs_to_local(nfs_path, project_base, local_base, datasets_base, datasets_local_base):
@@ -145,3 +145,23 @@ def validate_requested_volumes(user, requested):
             return False, f"You only have read-only access to '{host_path}'."
 
     return True, None
+
+
+def dataset_name(host_path, datasets_base):
+    """The dataset ``host_path`` is, by its directory name under ``datasets_base``; else None."""
+    if not host_path or not datasets_base:
+        return None
+    parent, name = os.path.split(os.path.normpath(host_path))
+    return name if parent == os.path.normpath(datasets_base) and name else None
+
+
+def mounts_for(requested):
+    """ContainerMount rows for validated ``additional_volumes``, so WhaP can later
+    tell who mounts a dataset."""
+    datasets_base = current_app.config.get('DATASETS_BASE_PATH')
+    return [
+        ContainerMount(host_path=vol['host_path'], container_path=vol['container_path'],
+                       writable=bool(vol.get('is_writable')),
+                       dataset=dataset_name(vol['host_path'], datasets_base))
+        for vol in requested or []
+    ]

@@ -176,3 +176,78 @@ def test_a_failed_startup_check_stops_gunicorn_instead_of_hanging(valid_config, 
     with pytest.raises(SystemExit) as exit_info:
         valid_config.check_critical_config()
     assert exit_info.value.code == 3
+
+
+# --- Notification channels -------------------------------------------------
+
+SMTP = dict(SMTP_SERVER="smtp.example.org", SENDER_EMAIL="whap@example.org")
+MATRIX = dict(MATRIX_HOMESERVER_URL="https://matrix.example.org", MATRIX_ACCESS_TOKEN="syt_secret")
+
+
+@pytest.mark.parametrize("settings", [
+    {},  # no notifications at all is allowed
+    SMTP,
+    dict(SMTP, SMTP_USERNAME="whap", SMTP_PASSWORD="pw", SMTP_SECURITY="ssl", SMTP_PORT="465"),
+    dict(SMTP, SMTP_SECURITY="none", SMTP_PORT="25"),
+    MATRIX,
+    dict(TTL_REMINDER_DAYS="14, 7,1", WHAP_URL="https://whap.example.org"),
+])
+def test_valid_notification_settings_are_accepted(settings):
+    from app.config import find_config_problems
+    assert find_config_problems(_cfg(**settings)) == []
+
+
+@pytest.mark.parametrize("settings, complaint", [
+    (dict(SMTP_SERVER="smtp.example.org"), "SENDER_EMAIL together"),
+    (dict(SENDER_EMAIL="whap@example.org"), "SENDER_EMAIL together"),
+    (dict(SMTP, SMTP_USERNAME="whap"), "SMTP_PASSWORD together"),
+    (dict(SMTP, SMTP_SECURITY="tls"), "SMTP_SECURITY must be one of"),
+    (dict(SMTP, SMTP_PORT="smtp"), "SMTP_PORT must be a port number"),
+    (dict(SMTP, SMTP_PORT="70000"), "SMTP_PORT must be a port number"),
+    (dict(MATRIX_HOMESERVER_URL="https://matrix.example.org"), "MATRIX_ACCESS_TOKEN together"),
+    (dict(MATRIX_ACCESS_TOKEN="syt_secret"), "MATRIX_ACCESS_TOKEN together"),
+    (dict(MATRIX, MATRIX_HOMESERVER_URL="http://matrix.example.org"), "must be an https:// address"),
+    (dict(TTL_REMINDER_DAYS="a week"), "TTL_REMINDER_DAYS"),
+    (dict(TTL_REMINDER_DAYS="7,0"), "TTL_REMINDER_DAYS"),
+    (dict(TTL_REMINDER_DAYS=","), "TTL_REMINDER_DAYS"),
+    (dict(WHAP_URL="whap.example.org"), "WHAP_URL must start with"),
+])
+def test_incomplete_or_unsafe_notification_settings_stop_the_start(settings, complaint):
+    from app.config import find_config_problems
+    problems = find_config_problems(_cfg(**settings))
+    assert any(complaint in p for p in problems), problems
+
+
+def test_reminder_days_are_read_furthest_first():
+    from app.config import reminder_days
+    assert reminder_days("1,7") == [7, 1]
+    assert reminder_days(" 7 , 1, 7 ") == [7, 1]
+
+
+def test_reminders_default_to_a_week_and_a_day_before(monkeypatch):
+    config_module = _reload_config_without(monkeypatch, "TTL_REMINDER_DAYS")
+    try:
+        assert config_module.reminder_days(config_module.Config.TTL_REMINDER_DAYS) == [7, 1]
+    finally:
+        importlib.reload(config_module)
+
+
+def test_the_startup_check_says_which_channels_work(valid_config, monkeypatch, tmp_path, capsys):
+    (tmp_path / "roles").mkdir()
+    monkeypatch.setattr(valid_config.Config, "ANSIBLE_ROLES_PATH", str(tmp_path / "roles"))
+    for name, value in dict(SMTP, SMTP_SERVER=None, SENDER_EMAIL=None, MATRIX_HOMESERVER_URL="",
+                            MATRIX_ACCESS_TOKEN=None, WHAP_URL="").items():
+        monkeypatch.setattr(valid_config.Config, name, value)
+    valid_config.check_critical_config()
+    out = capsys.readouterr().out
+    assert "WARNING: email notifications are off" in out
+    assert "Matrix notifications are off" in out
+    assert "WARNING: WHAP_URL is not set" in out
+
+    for name, value in dict(SMTP, **MATRIX, WHAP_URL="https://whap.example.org").items():
+        monkeypatch.setattr(valid_config.Config, name, value)
+    valid_config.check_critical_config()
+    out = capsys.readouterr().out
+    assert "OK: email notifications via smtp.example.org:587 from whap@example.org" in out
+    assert "OK: Matrix notifications via https://matrix.example.org" in out
+    assert "syt_secret" not in out

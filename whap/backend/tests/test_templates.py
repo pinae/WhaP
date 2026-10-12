@@ -147,3 +147,54 @@ def test_worker_synced_schema_correctness(template_env):
 
     # Check additional volumes
     assert '/extra:/extra:rw' in service['volumes']
+
+
+def _render_env(template_env, notifications=None):
+    env, _ = template_env
+    service_cfg = {
+        "secret_key": "x" * 64, "domain": "whap.example.org", "container_file_owner": "pina",
+        "db": {"user": "u", "password": "p", "name": "whap"},
+        "influxdb": {"token": "t", "org": "o", "bucket": "b"},
+    }
+    if notifications is not None:
+        service_cfg["notifications"] = notifications
+    rendered = env.get_template("whap/templates/env.prod.j2").render(
+        service_cfg=service_cfg, docker_dir="/docker",
+        ldap={"uri": "ldaps://ldap", "base": {"dn": "dc=x"}, "binduser": {"dn": "cn=b", "password": "pw"}})
+    values = {}
+    for line in rendered.splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip("'")
+    return values
+
+
+def test_without_notification_settings_whap_sends_no_email(template_env):
+    values = _render_env(template_env)
+    assert values["WHAP_URL"] == "https://whap.example.org"
+    assert values["TTL_REMINDER_DAYS"] == "7,1"
+    assert not {"SMTP_SERVER", "SENDER_EMAIL", "MATRIX_HOMESERVER_URL", "MATRIX_ACCESS_TOKEN"} & set(values)
+
+
+def test_notification_settings_reach_the_backend_in_a_form_it_accepts(template_env):
+    from types import SimpleNamespace
+    from app.config import find_config_problems, reminder_days
+
+    values = _render_env(template_env, {
+        "ttl_reminder_days": [14, 7, 1],
+        "smtp": {"server": "smtp.example.org", "port": 465, "security": "ssl", "username": "whap",
+                 "password": "pw", "sender": "whap@example.org"},
+        "matrix": {"homeserver_url": "https://matrix.example.org", "access_token": "syt_x",
+                   "user_domain": "example.org"},
+    })
+    assert values["SMTP_PORT"] == "465" and values["SENDER_NAME"] == "WhaP"
+    assert values["MATRIX_USER_DOMAIN"] == "example.org"
+    assert reminder_days(values["TTL_REMINDER_DAYS"]) == [14, 7, 1]
+    assert find_config_problems(SimpleNamespace(**values)) == []
+
+
+def test_an_smtp_relay_without_login_gets_no_credentials(template_env):
+    values = _render_env(template_env, {"smtp": {"server": "relay.example.org", "security": "none",
+                                                 "port": 25, "sender": "whap@example.org"}})
+    assert "SMTP_USERNAME" not in values and "SMTP_PASSWORD" not in values
+    assert values["SMTP_SECURITY"] == "none"

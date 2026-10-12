@@ -1,3 +1,5 @@
+import json
+
 from . import db
 from datetime import datetime, timezone, UTC
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -125,6 +127,8 @@ class LocalUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), index=True, unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)  # Increased length for future hash algorithms
+    # Where notifications go; LDAP users have theirs in the directory. Set by an admin.
+    email = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships (optional but can be useful)
@@ -161,6 +165,8 @@ class LocalUser(db.Model):
             'created_at': _iso_utc(self.created_at),
             'user_type': 'local'
         }
+        if include_email:
+            data['email'] = self.email
         return data
 
 
@@ -429,6 +435,7 @@ class ContainerInstance(db.Model):
     ansible_jobs = db.relationship('AnsibleJob', back_populates='container', lazy='dynamic',
                                    cascade="all, delete-orphan",
                                    order_by=lambda: AnsibleJob.created_at.desc())
+    mounts = db.relationship('ContainerMount', back_populates='container', cascade="all, delete-orphan")
 
     # Add constraint to ensure one user type is set
     __table_args__ = (
@@ -464,6 +471,13 @@ class ContainerInstance(db.Model):
             current_app.logger.error(f"Failed to get LDAP details for UID '{self.user_uid}' for container {self.id}")
             return None
         return None
+
+    @property
+    def owner_identifier(self):
+        """The prefixed id of the user who started it ("local:<id>" or "ldap:<uid>")."""
+        if self.user_local_user_id:
+            return f"local:{self.user_local_user_id}"
+        return f"ldap:{self.user_uid}"
 
     def get_user_display(self):
         if self.user_local_user_id and self.local_user:
@@ -558,4 +572,221 @@ class FileOperationJob(db.Model):
             'log': self.log,
             'created_at': _iso_utc(self.created_at),
             'updated_at': _iso_utc(self.updated_at),
+        }
+
+
+class ContainerMount(db.Model):
+    """A directory bind-mounted into a container at its creation.
+
+    Kept so WhaP can tell who uses a dataset; until it existed, the mounts were
+    only in the create job's extravars.
+    """
+    __tablename__ = 'container_mount'
+    id = db.Column(db.Integer, primary_key=True)
+    container_id = db.Column(db.Integer, db.ForeignKey('container_instance.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    host_path = db.Column(db.String(1024), nullable=False)
+    container_path = db.Column(db.String(1024), nullable=False)
+    writable = db.Column(db.Boolean, nullable=False, default=False)
+    # The directory's name under DATASETS_BASE_PATH if it is a dataset, else NULL.
+    dataset = db.Column(db.String(255), nullable=True, index=True)
+
+    container = db.relationship('ContainerInstance', back_populates='mounts')
+
+
+# --- Notifications ---------------------------------------------------------
+
+# What a user can switch on and off. Announcements to everyone have no topic:
+# they reach everyone on the channels they have switched on.
+NOTIFICATION_TOPICS = ('maintenance', 'expiry', 'image', 'dataset')
+# kind -> topic; 'announcement' maps to None.
+NOTIFICATION_KINDS = {
+    'maintenance': 'maintenance',
+    'image': 'image',
+    'dataset': 'dataset',
+    'expiry': 'expiry',
+    'announcement': None,
+}
+NOTIFICATION_CHANNELS = ('email', 'matrix')
+
+
+class NotificationSettings(db.Model):
+    """Where and about what a user wants to hear. No row means the defaults:
+    email on, every topic on, no Matrix."""
+    __tablename__ = 'notification_settings'
+    user_uid = db.Column(db.String(128), primary_key=True)  # "local:<id>" or "ldap:<uid>"
+    email_enabled = db.Column(db.Boolean, nullable=False, default=True)
+    matrix_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    matrix_id = db.Column(db.String(255), nullable=True)  # verified, e.g. "@alice:matrix.example.org"
+    matrix_room_id = db.Column(db.String(255), nullable=True)  # the bot's direct chat with them
+    # A Matrix ID being verified: the bot has sent a code to this room.
+    matrix_pending_id = db.Column(db.String(255), nullable=True)
+    matrix_pending_room_id = db.Column(db.String(255), nullable=True)
+    matrix_code_hash = db.Column(db.String(256), nullable=True)
+    matrix_code_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    matrix_code_attempts = db.Column(db.Integer, nullable=False, default=0)
+    topic_maintenance = db.Column(db.Boolean, nullable=False, default=True)
+    topic_expiry = db.Column(db.Boolean, nullable=False, default=True)
+    topic_image = db.Column(db.Boolean, nullable=False, default=True)
+    topic_dataset = db.Column(db.Boolean, nullable=False, default=True)
+    # When the user confirmed that turning notifications off may cost them data.
+    all_off_acknowledged_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC),
+                           onupdate=lambda: datetime.now(UTC))
+
+    _DEFAULTS = {
+        'email_enabled': True, 'matrix_enabled': False, 'matrix_code_attempts': 0,
+        'topic_maintenance': True, 'topic_expiry': True, 'topic_image': True, 'topic_dataset': True,
+    }
+
+    def __init__(self, **kwargs):
+        # Column defaults apply only on INSERT; set them here so an unsaved
+        # instance (a user without a row) reads the same as a saved one.
+        for key, value in self._DEFAULTS.items():
+            kwargs.setdefault(key, value)
+        super().__init__(**kwargs)
+
+    @classmethod
+    def for_user(cls, user_uid):
+        """The user's settings, or the defaults (not added to the session)."""
+        return db.session.get(cls, user_uid) or cls(user_uid=user_uid)
+
+    def wants(self, kind):
+        """Whether this user wants notifications of ``kind`` at all."""
+        topic = NOTIFICATION_KINDS[kind]
+        return topic is None or getattr(self, f'topic_{topic}')
+
+    def channels(self):
+        """The channels switched on, whether or not an address is known."""
+        found = []
+        if self.email_enabled:
+            found.append('email')
+        if self.matrix_enabled and self.matrix_id and self.matrix_room_id:
+            found.append('matrix')
+        return found
+
+    def protects_data(self):
+        """False when WhaP could not warn this user before deleting or stopping
+        their things: no channel on, or both data-protecting topics off."""
+        return bool(self.channels()) and (self.topic_maintenance or self.topic_expiry)
+
+    def to_dict(self):
+        return {
+            'email_enabled': self.email_enabled,
+            'matrix_enabled': self.matrix_enabled,
+            'matrix_id': self.matrix_id,
+            'matrix_pending_id': self.matrix_pending_id,
+            'topics': {topic: getattr(self, f'topic_{topic}') for topic in NOTIFICATION_TOPICS},
+            'all_off_acknowledged_at': _iso_utc(self.all_off_acknowledged_at),
+        }
+
+
+class Notification(db.Model):
+    """A message to the users a server, image, dataset or expiry concerns, or to everyone.
+
+    Admins write all kinds but 'expiry', which the worker creates per container.
+    """
+    __tablename__ = 'notification'
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(32), nullable=False, index=True)  # a key of NOTIFICATION_KINDS
+    # draft -> scheduled -> sending -> sent; or cancelled.
+    status = db.Column(db.String(16), nullable=False, default='draft', index=True)
+    subject = db.Column(db.String(255), nullable=False, default='')
+    body = db.Column(db.Text, nullable=False, default='')  # a template: {name}, {containers}, ...
+    # What it is about and the fields its template uses, as JSON:
+    # maintenance {"server_ids": [..], "start": iso, "end": iso, "impact": "stopped"},
+    # image {"image": "worker_..."}, dataset {"dataset": "coco"}, expiry {"container_id": n, ...}.
+    params = db.Column(db.Text, nullable=False, default='{}')
+    send_at = db.Column(db.DateTime(timezone=True), nullable=True)  # NULL: as soon as scheduled
+    remind_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # The notice shows inside WhaP until then (maintenance: the end of the window).
+    notice_until = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Makes a system notification unique, e.g. "expiry:<container>:<date>:<days>".
+    dedupe_key = db.Column(db.String(255), nullable=True, unique=True)
+    created_by = db.Column(db.String(128), nullable=True)  # NULL: WhaP itself
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC),
+                           onupdate=lambda: datetime.now(UTC))
+    sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    reminded_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    deliveries = db.relationship('NotificationDelivery', back_populates='notification',
+                                 cascade="all, delete-orphan", lazy='dynamic')
+
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('maintenance', 'image', 'dataset', 'expiry', 'announcement')",
+                           name='cc_notification_kind'),
+        db.CheckConstraint("status IN ('draft', 'scheduled', 'sending', 'sent', 'cancelled')",
+                           name='cc_notification_status'),
+    )
+
+    @property
+    def params_dict(self):
+        return json.loads(self.params or '{}')
+
+    @params_dict.setter
+    def params_dict(self, value):
+        self.params = json.dumps(value or {})
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'kind': self.kind,
+            'status': self.status,
+            'subject': self.subject,
+            'body': self.body,
+            'params': self.params_dict,
+            'send_at': _iso_utc(self.send_at),
+            'remind_at': _iso_utc(self.remind_at),
+            'notice_until': _iso_utc(self.notice_until),
+            'created_by': self.created_by,
+            'created_at': _iso_utc(self.created_at),
+            'updated_at': _iso_utc(self.updated_at),
+            'sent_at': _iso_utc(self.sent_at),
+            'reminded_at': _iso_utc(self.reminded_at),
+        }
+
+
+class NotificationDelivery(db.Model):
+    """One message to one user over one channel."""
+    __tablename__ = 'notification_delivery'
+    id = db.Column(db.Integer, primary_key=True)
+    notification_id = db.Column(db.Integer, db.ForeignKey('notification.id', ondelete='CASCADE'),
+                                nullable=False, index=True)
+    user_uid = db.Column(db.String(128), nullable=False, index=True)
+    channel = db.Column(db.String(16), nullable=False)  # one of NOTIFICATION_CHANNELS
+    phase = db.Column(db.String(16), nullable=False, default='notice')  # 'notice' or 'reminder'
+    address = db.Column(db.String(255), nullable=True)  # email address or Matrix room, when sent
+    # The message as rendered for this user.
+    subject = db.Column(db.String(255), nullable=True)
+    body = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(16), nullable=False, default='pending', index=True)  # pending, sent, failed
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    next_attempt_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    sent_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    notification = db.relationship('Notification', back_populates='deliveries')
+
+    __table_args__ = (
+        db.UniqueConstraint('notification_id', 'user_uid', 'channel', 'phase', name='uq_delivery_once'),
+        db.CheckConstraint("channel IN ('email', 'matrix')", name='cc_delivery_channel'),
+        db.CheckConstraint("phase IN ('notice', 'reminder')", name='cc_delivery_phase'),
+        db.CheckConstraint("status IN ('pending', 'sent', 'failed')", name='cc_delivery_status'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'notification_id': self.notification_id,
+            'user_uid': self.user_uid,
+            'channel': self.channel,
+            'phase': self.phase,
+            'address': self.address,
+            'status': self.status,
+            'attempts': self.attempts,
+            'last_error': self.last_error,
+            'created_at': _iso_utc(self.created_at),
+            'sent_at': _iso_utc(self.sent_at),
         }

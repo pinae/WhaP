@@ -55,6 +55,7 @@ function LocalUserList({users, onAddUser, onEditUser, onDeleteUser, isLoading, e
                             <TableRow>
                                 <TableCell sx={{fontWeight: 'bold'}}>ID</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>Username</TableCell>
+                                <TableCell sx={{fontWeight: 'bold'}}>Email</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>Admin Status</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>Created</TableCell>
                                 <TableCell align="right" sx={{fontWeight: 'bold'}}>Actions</TableCell>
@@ -68,6 +69,7 @@ function LocalUserList({users, onAddUser, onEditUser, onDeleteUser, isLoading, e
                                     <TableRow hover key={user.id}>
                                         <TableCell>{user.id}</TableCell>
                                         <TableCell>{user.username}</TableCell>
+                                        <TableCell>{user.email || '—'}</TableCell>
                                         <TableCell>
                                             {user.is_admin
                                                 ?

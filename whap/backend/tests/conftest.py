@@ -319,7 +319,8 @@ def make_container(db):
         if isinstance(owner, LocalUser):
             kwargs["user_local_user_id"] = owner.id
         else:
-            kwargs["user_uid"] = _prefixed_id(owner)
+            # As the create route stores it: the bare LDAP uid, not "ldap:<uid>".
+            kwargs["user_uid"] = _prefixed_id(owner).split(":", 1)[-1]
         container = ContainerInstance(
             project_id=project.id,
             compute_server_id=server.id,

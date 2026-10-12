@@ -19,6 +19,29 @@ INSECURE_SECRET_KEY = 'a-very-secretive-secret-key-please-change'
 # Valid LDAP_TLS_OPTION values. Each maps onto python-ldap's OPT_X_TLS_<value>.
 LDAP_TLS_OPTIONS = ('DEMAND', 'ALLOW', 'NEVER')
 
+# Valid SMTP_SECURITY values: STARTTLS on a plain connection (port 587), TLS
+# from the start (465), or none (a relay on the local network).
+SMTP_SECURITY_OPTIONS = ('starttls', 'ssl', 'none')
+
+
+def reminder_days(value):
+    """TTL_REMINDER_DAYS ("7,1") as days before the ttl date, furthest first.
+
+    Raises ValueError for anything but a list of positive whole numbers.
+    """
+    days = sorted({int(part) for part in str(value).split(',') if part.strip()}, reverse=True)
+    if not days or days[-1] < 1:
+        raise ValueError(value)
+    return days
+
+
+def email_configured(cfg):
+    return bool(getattr(cfg, 'SMTP_SERVER', None) and getattr(cfg, 'SENDER_EMAIL', None))
+
+
+def matrix_configured(cfg):
+    return bool(getattr(cfg, 'MATRIX_HOMESERVER_URL', None) and getattr(cfg, 'MATRIX_ACCESS_TOKEN', None))
+
 
 def roles_dirs(roles_path):
     """The directories in ANSIBLE_ROLES_PATH that exist, in Ansible's search order.
@@ -106,6 +129,27 @@ class Config:
     ANSIBLE_PROJECT_DIR = os.environ.get('ANSIBLE_PROJECT_DIR')
     ANSIBLE_RUNNER_DIR = _runner_dir()
 
+    # --- Notifications ---
+    # WhaP's address as users reach it, for links in notifications.
+    WHAP_URL = os.environ.get('WHAP_URL', '')
+    # Email. Without SMTP_SERVER and SENDER_EMAIL, WhaP sends no email.
+    SMTP_SERVER = os.environ.get('SMTP_SERVER')
+    SMTP_PORT = os.environ.get('SMTP_PORT', '587')
+    SMTP_SECURITY = os.environ.get('SMTP_SECURITY', 'starttls').lower()  # one of SMTP_SECURITY_OPTIONS
+    SMTP_USERNAME = os.environ.get('SMTP_USERNAME')  # optional: a relay may not need a login
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+    SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
+    SENDER_NAME = os.environ.get('SENDER_NAME', 'WhaP')
+    # Matrix. The bot account WhaP sends as: its homeserver and an access token.
+    # Without both, users cannot connect a Matrix account.
+    MATRIX_HOMESERVER_URL = os.environ.get('MATRIX_HOMESERVER_URL', '').rstrip('/')
+    MATRIX_ACCESS_TOKEN = os.environ.get('MATRIX_ACCESS_TOKEN')
+    # Optional: the server part of users' Matrix IDs, e.g. "matrix.example.org",
+    # to suggest "@<uid>:matrix.example.org" in the settings.
+    MATRIX_USER_DOMAIN = os.environ.get('MATRIX_USER_DOMAIN', '')
+    # Days before a local container's ttl date that its owner is reminded.
+    TTL_REMINDER_DAYS = os.environ.get('TTL_REMINDER_DAYS', '7,1')
+
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. Use specific URLs in production!
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:3000')
@@ -147,7 +191,57 @@ def find_config_problems(cfg):
     if tls_option not in LDAP_TLS_OPTIONS:
         problems.append(f"LDAP_TLS_OPTION must be one of {', '.join(LDAP_TLS_OPTIONS)}, got '{tls_option}'.")
 
+    problems.extend(_notification_problems(cfg))
     return problems
+
+
+def _notification_problems(cfg):
+    problems = []
+    if (getattr(cfg, 'SMTP_SECURITY', None) or 'starttls') not in SMTP_SECURITY_OPTIONS:
+        problems.append(f"SMTP_SECURITY must be one of {', '.join(SMTP_SECURITY_OPTIONS)}, "
+                        f"got '{cfg.SMTP_SECURITY}'.")
+    port = str(getattr(cfg, 'SMTP_PORT', None) or '587')
+    if not port.isdigit() or not 0 < int(port) < 65536:
+        problems.append(f"SMTP_PORT must be a port number, got '{port}'.")
+    if bool(getattr(cfg, 'SMTP_SERVER', None)) != bool(getattr(cfg, 'SENDER_EMAIL', None)):
+        problems.append("Set SMTP_SERVER and SENDER_EMAIL together (or neither, to send no email).")
+    if bool(getattr(cfg, 'SMTP_USERNAME', None)) != bool(getattr(cfg, 'SMTP_PASSWORD', None)):
+        problems.append("Set SMTP_USERNAME and SMTP_PASSWORD together (or neither, for a relay without login).")
+
+    homeserver = getattr(cfg, 'MATRIX_HOMESERVER_URL', None) or ''
+    if bool(homeserver) != bool(getattr(cfg, 'MATRIX_ACCESS_TOKEN', None)):
+        problems.append("Set MATRIX_HOMESERVER_URL and MATRIX_ACCESS_TOKEN together "
+                        "(or neither, to offer no Matrix).")
+    elif homeserver and not homeserver.startswith('https://'):
+        # The access token goes with every request; over http it is readable on the way.
+        problems.append(f"MATRIX_HOMESERVER_URL must be an https:// address, got '{homeserver}'.")
+
+    whap_url = getattr(cfg, 'WHAP_URL', None) or ''
+    if whap_url and not whap_url.startswith(('https://', 'http://')):
+        problems.append(f"WHAP_URL must start with https:// or http://, got '{whap_url}'.")
+
+    try:
+        reminder_days(getattr(cfg, 'TTL_REMINDER_DAYS', None) or '7,1')
+    except ValueError:
+        problems.append("TTL_REMINDER_DAYS must list whole numbers of days, e.g. '7,1', "
+                        f"got '{cfg.TTL_REMINDER_DAYS}'.")
+    return problems
+
+
+def notification_channels_report(cfg):
+    """One line per channel saying whether WhaP can use it."""
+    lines = []
+    if email_configured(cfg):
+        lines.append(f"OK: email notifications via {cfg.SMTP_SERVER}:{cfg.SMTP_PORT} from {cfg.SENDER_EMAIL}")
+    else:
+        lines.append("WARNING: email notifications are off: SMTP_SERVER and SENDER_EMAIL are not set.")
+    if matrix_configured(cfg):
+        lines.append(f"OK: Matrix notifications via {cfg.MATRIX_HOMESERVER_URL}")
+    else:
+        lines.append("OK: Matrix notifications are off (MATRIX_HOMESERVER_URL not set).")
+    if not getattr(cfg, 'WHAP_URL', None):
+        lines.append("WARNING: WHAP_URL is not set; notifications will contain no links to WhaP.")
+    return lines
 
 
 # --- Helper Function to Check Config ---
@@ -195,6 +289,9 @@ def check_critical_config():
         for missing in set((cfg.ANSIBLE_ROLES_PATH or '').split(os.pathsep)) - set(roles_dirs(cfg.ANSIBLE_ROLES_PATH)):
             if missing:
                 print(f"  WARNING: ANSIBLE_ROLES_PATH entry '{missing}' does not exist.")
+
+    for line in notification_channels_report(cfg):
+        print(f"  {line}")
 
     if not is_ok:
         print(

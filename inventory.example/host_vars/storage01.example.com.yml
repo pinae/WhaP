@@ -33,6 +33,23 @@ whap:
   separate_traefik_network:
     use: true
     name: "traefik_default"
+  # Optional. Without smtp, WhaP sends no email; without matrix, users cannot
+  # connect a Matrix account. Both can be added later.
+  notifications:
+    # url: "https://whap.example.com"   # for links in messages; default https://<domain>
+    ttl_reminder_days: [7, 1]           # days before a local container's ttl date
+    smtp:
+      server: "smtp.example.com"
+      port: 587
+      security: "starttls"              # starttls (587) | ssl (465) | none
+      username: "whap"                  # leave out username and password for a relay without login
+      password: "put_the_smtp_password_here"
+      sender: "whap@example.com"
+      # sender_name: "WhaP"
+    # matrix:
+    #   homeserver_url: "https://matrix.example.com"
+    #   access_token: "put_the_bot_access_token_here"   # of the account WhaP sends as
+    #   user_domain: "matrix.example.com"               # suggests @<uid>:matrix.example.com to users
   # Test rigs only: fixtures for the end-to-end tests -- a disposable LDAP
   # directory and a small dataset (whap/e2e/README.md). While enabled, WhaP
   # signs users in against the test directory instead of the ldap block below.
