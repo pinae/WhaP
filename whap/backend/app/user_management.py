@@ -1,4 +1,7 @@
 import logging
+import time
+
+from flask import current_app, has_request_context, session
 from flask_login import UserMixin
 from . import db, login_manager
 from .models import LocalUser, GroupMembership
@@ -60,6 +63,10 @@ class LocalUserWrapper(User):
     def username(self):
         return self.db_user.username
 
+    @property
+    def email(self):
+        return self.db_user.email
+
     def get_project_owner_dict(self):
         return {'owner_local_user_id': self.db_user.id, 'owner_uid': None}
 
@@ -97,6 +104,11 @@ class LdapUserWrapper(User):
     @property
     def gid_number(self):
         return self.details.get('gidNumber')
+
+    @property
+    def email(self):
+        """The directory's mail attribute, as of sign-in or the last check; None if unknown."""
+        return self.details.get('mail')
 
     def get_project_owner_dict(self):
         return {'owner_local_user_id': None, 'owner_uid': self.username}
@@ -147,9 +159,69 @@ def load_user_by_identifier(prefixed_user_id):
     return None
 
 
+# --- LDAP users' details in their session ---
+# Flask-Login loads the user on every request. Asking LDAP each time (a new
+# TLS connection, bind and search) made every page wait for LDAP about ten
+# times, and signed everyone out whenever LDAP was down. The details are
+# kept in the (signed) session from sign-in on, and LDAP is asked again
+# once every LDAP_RECHECK_HOURS.
+
+LDAP_SESSION_KEY = 'ldap_user'
+_now = time.time  # tests move the clock
+
+
+def remember_ldap_user(details):
+    """Keep a signed-in LDAP user's details in their session until the next check."""
+    session[LDAP_SESSION_KEY] = {
+        'uid': details['uid'], 'uidNumber': details.get('uidNumber'), 'gidNumber': details.get('gidNumber'),
+        'mail': details.get('mail'),
+        'check_at': _now() + current_app.config.get('LDAP_RECHECK_HOURS', 24) * 3600,
+    }
+
+
+def forget_ldap_user():
+    session.pop(LDAP_SESSION_KEY, None)
+
+
+def _load_ldap_session_user(uid):
+    """The user from their session; from LDAP once the session's details are due for a check.
+
+    An account LDAP no longer has is signed out. If LDAP can't be reached the
+    user stays signed in with what the session knows, and the check waits
+    LDAP_RETRY_MINUTES instead of going to LDAP on every request.
+    """
+    stored = session.get(LDAP_SESSION_KEY)
+    if not stored or stored.get('uid') != uid:
+        stored = None  # signed in before details were kept in the session
+    elif _now() < stored.get('check_at', 0):
+        return LdapUserWrapper(stored)
+
+    try:
+        details = ldap_service.find_ldap_user(uid)
+    except ldap_service.LdapUnavailable as e:
+        logging.warning(f"Could not recheck LDAP user '{uid}', keeping them signed in: {e}")
+        stored = stored or {'uid': uid, 'uidNumber': None, 'gidNumber': None, 'mail': None}
+        session[LDAP_SESSION_KEY] = {
+            **stored, 'check_at': _now() + current_app.config.get('LDAP_RETRY_MINUTES', 5) * 60}
+        return LdapUserWrapper(stored)
+
+    if not details:
+        logging.warning(f"LDAP no longer has user '{uid}'; signing them out.")
+        forget_ldap_user()
+        # Flask-Login keeps the id in the session when the loader finds no
+        # user; without this, each later request would ask LDAP again.
+        session.pop('_user_id', None)
+        session.pop('_fresh', None)
+        return None
+    remember_ldap_user(details)
+    return LdapUserWrapper(details)
+
+
 # --- User Loader ---
 @login_manager.user_loader
 def load_user(prefixed_user_id):
     """Loads the correct user wrapper object based on the ID prefix in the session."""
     logging.debug(f"load_user called with: {prefixed_user_id}")
+    if has_request_context() and isinstance(prefixed_user_id, str) and prefixed_user_id.startswith('ldap:'):
+        return _load_ldap_session_user(prefixed_user_id.split(':', 1)[1])
     return load_user_by_identifier(prefixed_user_id)

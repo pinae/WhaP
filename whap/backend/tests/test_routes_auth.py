@@ -2,17 +2,10 @@
 
 Auth is the entry point for every authenticated request. Local auth runs
 against the DB; LDAP auth is mocked (``authenticate_user`` returns a details
-dict, not a bare uid). Email lookup on
-successful login is mocked too, since it would otherwise hit LDAP/notification.
+dict, not a bare uid). The address in the reply comes from the local record or
+from that LDAP sign-in, never from a second lookup.
 """
 import pytest
-
-
-@pytest.fixture(autouse=True)
-def _no_email_lookup(monkeypatch):
-    """Login calls notification_service.get_user_email; stub it by default."""
-    import app.routes.auth as auth
-    monkeypatch.setattr(auth.notification_service, "get_user_email", lambda uid: None)
 
 
 # --- login: validation ------------------------------------------------------
@@ -25,11 +18,10 @@ def test_login_missing_credentials_400(client, db):
 
 # --- login: local -----------------------------------------------------------
 
-def test_login_local_success(client, db, make_local_user, monkeypatch):
-    import app.routes.auth as auth
-    monkeypatch.setattr(auth.notification_service, "get_user_email",
-                        lambda uid: "alice@example.com")
+def test_login_local_success(client, db, make_local_user):
     user = make_local_user(username="alice", password="s3cret")
+    user.email = "alice@example.com"
+    db.session.commit()
 
     resp = client.post("/auth/login", json={"username": "alice", "password": "s3cret"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -63,13 +55,15 @@ def test_login_ldap_success_when_not_local(client, db, monkeypatch):
     # Unknown locally -> LDAP path. authenticate_user returns a details dict.
     monkeypatch.setattr(
         auth.ldap_service, "authenticate_user",
-        lambda username, password: {"uid": username, "uidNumber": "5000", "gidNumber": "5000"},
+        lambda username, password: {"uid": username, "uidNumber": "5000", "gidNumber": "5000",
+                                    "mail": "jdoe@example.com"},
     )
     resp = client.post("/auth/login", json={"username": "jdoe", "password": "ldappw"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()["user"]
     assert body["id"] == "ldap:jdoe"
     assert body["user_type"] == "ldap"
+    assert body["email"] == "jdoe@example.com"
 
 
 def test_login_ldap_failure_401(client, db, monkeypatch):

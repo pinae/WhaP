@@ -69,9 +69,7 @@ def test_nonsense_is_refused(client, db, carol, body):
     ("merkepkb", "", None),
 ])
 def test_ldap_users_get_their_university_matrix_id_filled_in(app, client, mail, homeserver, directory,
-                                                              login_as, monkeypatch, uid, domain, suggestion):
-    monkeypatch.setattr("app.user_management.ldap_service.get_ldap_user_details",
-                        lambda uid: {"uid": uid, "uidNumber": "70001", "gidNumber": "70000"})
+                                                              login_as, uid, domain, suggestion):
     app.config["MATRIX_USER_DOMAIN"] = domain
     login_as(f"ldap:{uid}")
     assert client.get("/api/notification-settings").get_json()["matrix"]["suggestion"] == suggestion

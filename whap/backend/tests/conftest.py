@@ -11,6 +11,7 @@ Design notes:
   vs bare uid distinction lives in exactly one place.
 """
 import os
+import time
 
 # Must run before the app package is imported (it reads these at import time).
 os.environ["SOCKETIO_MESSAGE_QUEUE"] = ""
@@ -18,12 +19,15 @@ os.environ.setdefault("REDIS_HOST", "localhost")
 os.environ.setdefault("REDIS_PORT", "6379")
 
 import pytest  # noqa: E402
+from flask import g  # noqa: E402
+from flask.testing import FlaskClient  # noqa: E402
 
 # mail, homeserver, directory: fakes for sending notifications.
 pytest_plugins = ["notification_fixtures"]
 
 from app import create_app, db as _db  # noqa: E402
 from app.config import Config  # noqa: E402
+from app.user_management import LDAP_SESSION_KEY  # noqa: E402
 from app.models import (  # noqa: E402
     LocalUser,
     Group,
@@ -78,6 +82,20 @@ def _build_config(tmp_path):
 
 # --- Core harness ---------------------------------------------------------
 
+class _FreshUserClient(FlaskClient):
+    """Loads the signed-in user anew for every request, as production does.
+
+    Flask-Login caches the user in ``g`` for the rest of the app context. In
+    production each request has its own context; here the ``app`` fixture keeps
+    one open for the whole test, so without this a test sees the user loader
+    run once, and per-request costs (an LDAP lookup each time) stay hidden.
+    """
+
+    def open(self, *args, **kwargs):
+        g.pop("_login_user", None)
+        return super().open(*args, **kwargs)
+
+
 @pytest.fixture
 def app(tmp_path):
     """A fresh application + schema per test, app context already pushed.
@@ -87,6 +105,7 @@ def app(tmp_path):
     is normally created by a migration rather than by ``create_all``.
     """
     application = create_app(_build_config(tmp_path))
+    application.test_client_class = _FreshUserClient
     ctx = application.app_context()
     ctx.push()
 
@@ -345,19 +364,31 @@ def make_container(db):
 
 # --- Auth helpers ---------------------------------------------------------
 
+def _sign_in(client, user, mail=None):
+    """Put ``user`` in ``client``'s session as /auth/login would; returns the prefixed id."""
+    uid = _prefixed_id(user)
+    with client.session_transaction() as session:
+        session["_user_id"] = uid
+        session["_fresh"] = True
+        if uid.startswith("ldap:"):
+            session[LDAP_SESSION_KEY] = {
+                "uid": uid.split(":", 1)[1], "uidNumber": "70001", "gidNumber": "70000", "mail": mail,
+                "check_at": time.time() + 24 * 3600}
+    return uid
+
+
 @pytest.fixture
 def login_as(client):
     """Establish a Flask-Login session for ``user`` without going through
     ``/auth/login`` (so route tests don't drag local/LDAP auth into every case).
     The user_loader still runs each request, exercising the real load_user path.
+
+    An LDAP user's session gets the details a sign-in keeps there, due for
+    their next LDAP check in a day; ``mail`` sets their directory address.
     """
 
-    def _login(user):
-        uid = _prefixed_id(user)
-        with client.session_transaction() as session:
-            session["_user_id"] = uid
-            session["_fresh"] = True
-        return uid
+    def _login(user, mail=None):
+        return _sign_in(client, user, mail)
 
     return _login
 
@@ -366,27 +397,15 @@ def login_as(client):
 def client_for(app):
     """Return a factory that gives each user its *own* authenticated client.
 
-    Two subtleties make naive multi-user tests unreliable, both handled here:
-
-    * ``login_as`` re-binds the shared ``client`` fixture's session, which does
-      not reliably switch identity a second time within one test. Each call here
-      returns a fresh client with an independent session instead.
-    * The ``app`` fixture keeps one app context pushed for the whole test, and
-      Flask-Login caches the resolved user on ``g._login_user`` within it. Without
-      clearing that, the second client's request re-uses the first user. We drop
-      the cache on each call so identity is resolved from the new client's
-      session.
+    ``login_as`` re-binds the shared ``client`` fixture's session, which does
+    not reliably switch identity a second time within one test. Each call here
+    returns a fresh client with an independent session instead. (Each request
+    loads its user anew: see _FreshUserClient.)
     """
-    from flask import g
 
     def _client_for(user):
-        for attr in ("_login_user", "_cached_user"):
-            if hasattr(g, attr):
-                delattr(g, attr)
         c = app.test_client()
-        with c.session_transaction() as session:
-            session["_user_id"] = _prefixed_id(user)
-            session["_fresh"] = True
+        _sign_in(c, user)
         return c
 
     return _client_for

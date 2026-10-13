@@ -122,6 +122,12 @@ class Config:
     # objectClass of person entries listed by the user search. Site-specific:
     # RUB's directory uses rubPerson; a stock OpenLDAP uses inetOrgPerson.
     LDAP_USER_OBJECT_CLASS = os.environ.get('LDAP_USER_OBJECT_CLASS', 'rubPerson')
+    # A signed-in LDAP user's details live in their session. LDAP is asked again
+    # this often, so an account removed there is signed out within this time.
+    LDAP_RECHECK_HOURS = float(os.environ.get('LDAP_RECHECK_HOURS', 24))
+    # If LDAP can't be reached for that check, the user stays signed in and
+    # the check is tried again after this many minutes, not on every request.
+    LDAP_RETRY_MINUTES = float(os.environ.get('LDAP_RETRY_MINUTES', 5))
 
     # --- Ansible Runner ---
     # Directory to store ansible-runner artifacts (playbooks, logs, inventory)

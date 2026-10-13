@@ -289,3 +289,25 @@ def test_contacts_raise_when_the_directory_cannot_be_asked(app, fake_ldap):
     app.config["LDAP_BIND_PASSWORD"] = None
     with pytest.raises(ldap_service.LdapUnavailable):
         ldap_service.get_ldap_contacts(["jdoe"])
+
+
+# --- one user's details -------------------------------------------------------
+
+def test_a_users_details_include_the_address_if_there_is_one(app, fake_ldap):
+    from app.services import ldap_service
+    assert ldap_service.find_ldap_user("jdoe") == {
+        "uid": "jdoe", "uidNumber": "5001", "gidNumber": "5000", "mail": "jane@x"}
+    assert ldap_service.find_ldap_user("asmith")["mail"] is None
+
+
+def test_an_unknown_user_is_none_but_an_unreachable_directory_raises(app, fake_ldap):
+    """The sign-in check tells "this account is gone" (sign out) from "LDAP is down" (stay signed in)."""
+    from app.services import ldap_service
+    assert ldap_service.find_ldap_user("nobody") is None
+    fake_ldap.bad_passwords.add("secret")
+    with pytest.raises(ldap_service.LdapUnavailable):
+        ldap_service.find_ldap_user("jdoe")
+    assert ldap_service.get_ldap_user_details("jdoe") is None, "the old interface still answers None"
+    app.config["LDAP_BIND_PASSWORD"] = None
+    with pytest.raises(ldap_service.LdapUnavailable):
+        ldap_service.find_ldap_user("jdoe")

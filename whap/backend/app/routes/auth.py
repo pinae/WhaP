@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_user, logout_user, current_user, login_required
-from ..services import ldap_service, notification_service
-from ..user_management import LocalUserWrapper, LdapUserWrapper
+from ..services import ldap_service
+from ..user_management import LocalUserWrapper, LdapUserWrapper, forget_ldap_user, remember_ldap_user
 from ..models import LocalUser
 
 bp = Blueprint('auth', __name__)
@@ -46,11 +46,11 @@ def login():
     # --- Login Success ---
     if user_obj and auth_method:
         login_user(user_obj) # Creates the session, stores the prefixed user ID
+        if auth_method == "ldap":
+            remember_ldap_user(ldap_details)  # later requests need not ask LDAP
+        else:
+            forget_ldap_user()
         current_app.logger.info(f"User {username} logged in successfully via {auth_method}.")
-        
-        # Get user's email address if available
-        user_id = user_obj.get_id()
-        email = notification_service.get_user_email(user_id)
         
         return jsonify({
             "message": "Login successful",
@@ -59,7 +59,7 @@ def login():
                 "username": user_obj.username, # Actual username/uid
                 "user_type": user_obj.user_type,
                 "is_admin": user_obj.is_admin,
-                "email": email
+                "email": user_obj.email  # LDAP's came with the sign-in; no second lookup
             }
         }), 200
     else:
@@ -73,6 +73,7 @@ def login():
 def logout():
     user_id = current_user.get_id() # Get ID for logging before logout
     logout_user()
+    forget_ldap_user()
     current_app.logger.info(f"User {user_id} logged out.")
     return jsonify({"message": "Logout successful"}), 200
 

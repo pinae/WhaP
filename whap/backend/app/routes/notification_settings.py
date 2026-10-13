@@ -19,7 +19,6 @@ from ..models import NOTIFICATION_TOPICS, NotificationSettings, _iso_utc
 from ..notifications import dispatch, render
 from ..notifications.errors import DeliveryError
 from ..notifications.matrix_channel import MatrixChannel
-from ..services.notification_service import get_user_email
 
 nset_bp = Blueprint('notification_settings', __name__)
 
@@ -118,7 +117,7 @@ def _commit_unless_risky(settings, email, was_protected):
 @login_required
 def get_settings():
     settings = NotificationSettings.for_user(current_user.get_id())
-    return jsonify(_view(settings, get_user_email(current_user.get_id())))
+    return jsonify(_view(settings, current_user.email))
 
 
 @nset_bp.route('/notification-settings', methods=['PUT'])
@@ -135,7 +134,7 @@ def update_settings():
                                                                     ('email_enabled', 'matrix_enabled') if k in data)]):
         return jsonify({'message': 'Switches are true or false.'}), 400
 
-    email = get_user_email(current_user.get_id())
+    email = current_user.email
     settings = _settings()
     was_protected = _protected(settings, email)
     if 'email_enabled' in data:
@@ -192,7 +191,7 @@ def connect_matrix():
         current_app.logger.warning(f"Matrix code for {current_user.get_id()} to {matrix_id} failed: {e}")
         return jsonify({'message': f"WhaP's bot could not write to {matrix_id}: {e}"}), 502
     db.session.commit()
-    return jsonify(_view(settings, get_user_email(current_user.get_id()))), 200
+    return jsonify(_view(settings, current_user.email)), 200
 
 
 @nset_bp.route('/notification-settings/matrix/verify', methods=['POST'])
@@ -222,7 +221,7 @@ def verify_matrix():
     settings.matrix_pending_id = settings.matrix_pending_room_id = settings.matrix_code_hash = None
     settings.matrix_code_expires_at = None
     settings.matrix_code_attempts = 0
-    email = get_user_email(current_user.get_id())
+    email = current_user.email
     if _protected(settings, email):
         settings.all_off_acknowledged_at = None
     db.session.commit()
@@ -239,13 +238,13 @@ def cancel_matrix_code():
     settings.matrix_code_expires_at = None
     settings.matrix_code_attempts = 0
     db.session.commit()
-    return jsonify(_view(settings, get_user_email(current_user.get_id()))), 200
+    return jsonify(_view(settings, current_user.email)), 200
 
 
 @nset_bp.route('/notification-settings/matrix', methods=['DELETE'])
 @login_required
 def disconnect_matrix():
-    email = get_user_email(current_user.get_id())
+    email = current_user.email
     settings = _settings()
     was_protected = _protected(settings, email)
     room = settings.matrix_room_id
@@ -271,7 +270,7 @@ def _leave(room):
 def send_test():
     """Send a test message on every channel that reaches the user; report each."""
     config = current_app.config
-    email = get_user_email(current_user.get_id())
+    email = current_user.email
     settings = NotificationSettings.for_user(current_user.get_id())
     whap_url = (config.get('WHAP_URL') or '').rstrip('/')
     text = ("This is a test from WhaP. If you can read it, notifications reach you here."

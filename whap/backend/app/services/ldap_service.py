@@ -131,15 +131,18 @@ def authenticate_user(username, password):
         _unbind_quietly(conn)
 
 
-def get_ldap_user_details(username):
-    """
-    Fetches details for a given LDAP user using the service bind account.
-    This is used by the user_loader to refresh user info from the session ID.
-    Returns a dictionary with uid, uidNumber, gidNumber, or None.
+class LdapUnavailable(Exception):
+    """The directory could not be asked; the caller should try again later."""
+
+
+def find_ldap_user(username):
+    """uid, uidNumber, gidNumber and mail (None if absent) of a user, or None if LDAP has no unique, complete entry.
+
+    Raises LdapUnavailable if the directory can't be asked, so a caller can tell
+    "this account is gone" from "LDAP is down".
     """
     if not _service_config_complete():
-        current_app.logger.error("LDAP configuration for service account search is incomplete.")
-        return None
+        raise LdapUnavailable("LDAP configuration for service account search is incomplete.")
 
     conn = None
     try:
@@ -147,7 +150,7 @@ def get_ldap_user_details(username):
 
         search_filter = ldap.filter.filter_format('(uid=%s)', [username])
         results = conn.search_s(current_app.config.get('LDAP_USER_BASE_DN'), ldap.SCOPE_SUBTREE,
-                                search_filter, ['uid', 'uidNumber', 'gidNumber'])
+                                search_filter, ['uid', 'uidNumber', 'gidNumber', 'mail'])
 
         if len(results) == 1:
             _dn, entry = results[0]
@@ -157,20 +160,29 @@ def get_ldap_user_details(username):
                 'gidNumber': _first(entry, 'gidNumber'),
             }
             if all(details.values()):
+                details['mail'] = _first(entry, 'mail') or None
                 current_app.logger.debug(f"Found LDAP details for {username}: {details}")
                 return details
 
         current_app.logger.warning(
             f"Could not find a unique and complete LDAP entry for {username} during detail fetch.")
         return None
-    except LdapConfigError as e:
-        current_app.logger.error(str(e))
-        return None
-    except ldap.LDAPError as e:
-        current_app.logger.error(f"LDAP error getting details for {username}: {e}")
-        return None
+    except (LdapConfigError, ldap.LDAPError) as e:
+        raise LdapUnavailable(f"LDAP error getting details for {username}: {e}") from e
     finally:
         _unbind_quietly(conn)
+
+
+def get_ldap_user_details(username):
+    """
+    Fetches details for a given LDAP user using the service bind account.
+    Returns a dictionary with uid, uidNumber, gidNumber and mail, or None (also if LDAP can't be asked).
+    """
+    try:
+        return find_ldap_user(username)
+    except LdapUnavailable as e:
+        current_app.logger.error(str(e))
+        return None
 
 
 def get_all_users_in_group():
@@ -220,10 +232,6 @@ def get_all_users_in_group():
         return None
     finally:
         _unbind_quietly(conn)
-
-
-class LdapUnavailable(Exception):
-    """The directory could not be asked; the caller should try again later."""
 
 
 CONTACT_BATCH = 50
