@@ -149,7 +149,7 @@ def test_worker_synced_schema_correctness(template_env):
     assert '/extra:/extra:rw' in service['volumes']
 
 
-def _render_env(template_env, notifications=None):
+def _render_env(template_env, notifications=None, e2e=False):
     env, _ = template_env
     service_cfg = {
         "secret_key": "x" * 64, "domain": "whap.example.org", "container_file_owner": "pina",
@@ -158,6 +158,8 @@ def _render_env(template_env, notifications=None):
     }
     if notifications is not None:
         service_cfg["notifications"] = notifications
+    if e2e:
+        service_cfg["e2e"] = {"enabled": True}
     rendered = env.get_template("whap/templates/env.prod.j2").render(
         service_cfg=service_cfg, docker_dir="/docker",
         ldap={"uri": "ldaps://ldap", "base": {"dn": "dc=x"}, "binduser": {"dn": "cn=b", "password": "pw"}})
@@ -199,3 +201,16 @@ def test_an_smtp_relay_without_login_gets_no_credentials(template_env):
                                                  "port": 25, "sender": "whap@example.org"}})
     assert "SMTP_USERNAME" not in values and "SMTP_PASSWORD" not in values
     assert values["SMTP_SECURITY"] == "none"
+
+
+def test_a_test_rig_mails_only_to_its_mail_catcher_and_has_no_matrix(template_env):
+    from types import SimpleNamespace
+    from app.config import find_config_problems
+
+    values = _render_env(template_env, {
+        "smtp": {"server": "smtp.example.org", "sender": "whap@example.org"},
+        "matrix": {"homeserver_url": "https://matrix.example.org", "access_token": "syt_x"},
+    }, e2e=True)
+    assert (values["SMTP_SERVER"], values["SMTP_PORT"], values["SMTP_SECURITY"]) == ("e2e-mailpit", "1025", "none")
+    assert "MATRIX_HOMESERVER_URL" not in values and "MATRIX_ACCESS_TOKEN" not in values
+    assert find_config_problems(SimpleNamespace(**values)) == []

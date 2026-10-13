@@ -284,6 +284,11 @@ server or homeserver refuses for good (an unknown mailbox) is failed at once.
 While LDAP can't be reached, nothing is sent: WhaP waits rather than send to
 nobody.
 
+Users read how notifications work, and how to connect Matrix, on the docs page
+*Notifications* (`whap/backend/docs/06_notifications.md`). On a test rig
+(`whap.e2e.enabled`), every mail goes to a Mailpit container instead and Matrix
+is off; `whap/e2e/tests/test_notifications.py` reads what was sent from there.
+
 
 ```shell script
 ansible-playbook plays.example/whap.yml -i hosts

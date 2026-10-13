@@ -61,7 +61,9 @@ ansible-playbook plays/whap.yml
 
 Check that it worked:
 
-- `docker ps` on victor lists `whap-e2e-ldap` next to `whap-backend` and `whap-worker`.
+- `docker ps` on victor lists `whap-e2e-ldap` and `whap-e2e-mailpit` next to
+  `whap-backend` and `whap-worker`. `curl -s localhost:8025/api/v1/messages`
+  on victor answers with JSON: that is where every mail WhaP sends ends up.
 - `docker exec whap-backend flask --help` lists `e2e-seed` and `e2e-reset`.
   If they are missing, the backend runs old code:
   - Check `git -C /docker/whap/WhaP log --oneline -1`; it should match this
@@ -122,6 +124,8 @@ In **rig.toml**:
 
 - `[whap] url`: WhaP's address as a browser on victor reaches it.
 - `[users.alice]` and `[users.bob]`: the passwords from step 1.
+- `[users.admin]`: a name and password of your choice for the local admin the
+  notification tests compose with. Each run's seed creates it with this password.
 - `[storage]`:
   - `shell = []`, since the tests run on victor.
   - `backend_cli` as in the example.
@@ -141,6 +145,7 @@ Each step only makes sense once the previous one passes.
 ```bash
 cd ~/WhaP/whap/e2e
 uv run pytest tests/test_identity.py            # under a minute: LDAP, keys, projects, shares
+uv run pytest tests/test_notifications.py       # a minute: settings, a maintenance notice, an expiry reminder
 uv run pytest tests/test_container_lifecycle.py  # one container end to end; first run builds an image and installs torch
 uv run pytest                                   # everything: 10 containers, ~12 min once images exist; the first run builds them all
 uv run pytest --matrix full                     # later: auth and volume cases on every role as well
@@ -175,6 +180,9 @@ What to suspect first:
 | `test_the_compute_server_sees_the_projects_and_datasets` fails, or a share is "a placeholder Docker made" | tycho's `/data` is not victor's `projects_dir`: mount it over NFS (worker host_vars `nfs`), so that `/data/<user>/<project>` and `/data/DATASETS` on tycho are the directories on victor |
 | Every container ends in ERROR at "Ensure /data/<user> exists": `chown failed: Operation not permitted` | the NFS export squashes root: add `no_root_squash` for tycho on victor and run `exportfs -ra` |
 | PyTorch test fails on CUDA | `[torch] index_url` does not match the driver |
+| Notification tests: "Mailpit at http://127.0.0.1:8025 did not answer" | the rig was deployed before this branch had Mailpit: redeploy; or the tests don't run on victor |
+| Notification tests: "No mail to e2e-alice@whap.test ... Mailpit has: nothing" | the worker sends: `docker logs whap-worker`; `docker exec whap-backend env \| grep SMTP_SERVER` must say `e2e-mailpit` |
+| Notification tests are skipped | rig.toml has no `[users.admin]` |
 | `worker_synced_nvidia_pytorch1906` "image does what it is for" fails | expected: its conda Python is probably not on PATH in SSH sessions; please send me the output |
 
 ## 6. Nightly runs (optional, once a manual run is green)

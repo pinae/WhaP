@@ -6,5 +6,7 @@ outcome a person would wait for, not for network requests.
 """
 from .login import LoginPage
 from .user_panel import UserPanel
+from .settings import SettingsPage
+from .admin_notifications import AdminNotifications, Composer
 
-__all__ = ["LoginPage", "UserPanel"]
+__all__ = ["LoginPage", "UserPanel", "SettingsPage", "AdminNotifications", "Composer"]

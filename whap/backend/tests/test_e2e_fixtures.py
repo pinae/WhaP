@@ -307,3 +307,50 @@ def test_cli_reset_flags(rig, runner, db):
     result = runner.invoke(args=["e2e-reset", "--all", "-"], input=yaml.safe_dump(spec()))
     assert result.exit_code == 0, result.output
     assert "server tycho: deleted" in result.output
+
+
+# --- the notification tests' admin and leftovers ----------------------------------
+
+def test_seed_makes_the_test_admin_and_keeps_its_password_current(rig, db):
+    from app.models import LocalUser
+    from app.user_management import get_user_admin_status
+    seed(load_spec(spec(admin={"username": "e2e-admin", "password": "first-password"})))
+    admin = db.session.scalar(db.select(LocalUser).filter_by(username="e2e-admin"))
+    assert admin.check_password("first-password") and admin.email == "e2e-admin@whap.test"
+    assert get_user_admin_status(f"local:{admin.id}")
+    seed(load_spec(spec(admin={"username": "e2e-admin", "password": "second-password"})))
+    assert admin.check_password("second-password")
+    assert count(db, LocalUser) == 1
+
+
+@pytest.mark.parametrize("admin, message", [
+    ({"username": "E2E Admin", "password": "long-enough"}, "admin.username"),
+    ({"username": "e2e-admin", "password": "short"}, "admin.password"),
+])
+def test_a_bad_admin_is_rejected(admin, message):
+    with pytest.raises(E2EFixtureError, match=message):
+        load_spec(spec(admin=admin))
+
+
+def test_reset_removes_the_notification_tests_leftovers(rig, db, make_local_user):
+    from app.models import LocalUser, Notification, NotificationDelivery, NotificationSettings
+    the_spec = load_spec(spec(admin={"username": "e2e-admin", "password": "first-password"}))
+    seed(the_spec)
+    admin = db.session.scalar(db.select(LocalUser).filter_by(username="e2e-admin"))
+    other_admin = make_local_user(username="pina", is_admin=True)
+    mine = Notification(kind="maintenance", status="sent", created_by=f"local:{admin.id}")
+    theirs = Notification(kind="announcement", status="sent", created_by=f"local:{other_admin.id}")
+    alices_reminder = Notification(kind="expiry", status="sent", params='{"username": "e2e-alice"}')
+    someone_elses = Notification(kind="expiry", status="sent", params='{"username": "carol"}')
+    db.session.add_all([mine, theirs, alices_reminder, someone_elses,
+                        NotificationSettings(user_uid="ldap:e2e-alice", email_enabled=False),
+                        NotificationSettings(user_uid="ldap:carol", email_enabled=False)])
+    db.session.flush()
+    db.session.add(NotificationDelivery(notification_id=mine.id, user_uid="ldap:e2e-alice", channel="email"))
+    db.session.commit()
+
+    report = reset(the_spec)
+    assert any("2 deleted" in line and "1 reset" in line for line in report), report
+    assert {n.id for n in db.session.scalars(db.select(Notification))} == {theirs.id, someone_elses.id}
+    assert count(db, NotificationDelivery) == 0
+    assert [s.user_uid for s in db.session.scalars(db.select(NotificationSettings))] == ["ldap:carol"]

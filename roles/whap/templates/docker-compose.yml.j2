@@ -193,6 +193,16 @@ services:
       E2E_ALICE_PASSWORD: "{{ service_cfg.e2e.alice_password | replace('$', '$$') }}"
       E2E_BOB_PASSWORD: "{{ service_cfg.e2e.bob_password | replace('$', '$$') }}"
     restart: unless-stopped
+
+  e2e-mailpit:
+    # Catches every mail WhaP sends while e2e is enabled (.env.prod points
+    # SMTP_SERVER here); the tests read it through Mailpit's API. Its web UI and
+    # API are published on the storage server's loopback only.
+    image: "axllent/mailpit:v1.21.0"
+    container_name: whap-e2e-mailpit
+    ports:
+      - "127.0.0.1:{{ service_cfg.e2e.mail_port | default(8025) }}:8025"
+    restart: unless-stopped
 {% endif %}
 
 {% if service_cfg.separate_traefik_network.use | default(true) %}

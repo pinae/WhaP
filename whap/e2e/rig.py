@@ -55,6 +55,9 @@ class Rig:
         except KeyError as e:
             pytest.exit(f"{path} is missing {e}; see rig.example.toml.", returncode=4)
         self.browser = data.get("browser", {})
+        # Mailpit, which catches every mail on a rig with e2e enabled. Its API is
+        # published on the storage server's loopback, where the tests run.
+        self.mail_api = data.get("mail", {}).get("api", "http://127.0.0.1:8025").rstrip("/")
         # Optional: for `docker logs` of failed containers, and to check that the
         # compute server sees the storage server's projects and datasets.
         compute = data.get("compute", {})

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -41,7 +42,8 @@ def pytest_addoption(parser):
 
 
 # The modules run in this order, each building on the one before; others last.
-MODULE_ORDER = ["test_identity.py", "test_container_lifecycle.py", "test_container_matrix.py"]
+MODULE_ORDER = ["test_identity.py", "test_notifications.py", "test_container_lifecycle.py",
+                "test_container_matrix.py"]
 
 
 @pytest.hookimpl(wrapper=True)
@@ -125,6 +127,17 @@ def _whap_answers(rig, timeout=15):
     return None
 
 
+def _with_admin(spec_text, rig):
+    """The seed spec with [users.admin] from rig.toml as its admin, so the
+    password the tests sign in with is written in one place only."""
+    if "admin" not in rig.users:
+        return spec_text
+    spec = yaml.safe_load(spec_text) or {}
+    admin = rig.users["admin"]
+    spec["admin"] = {"username": admin.uid, "password": admin.password}
+    return yaml.safe_dump(spec)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def known_state(rig, pytestconfig):
     """Clear what earlier runs left behind and (re)seed the infrastructure, once per session."""
@@ -140,7 +153,7 @@ def known_state(rig, pytestconfig):
         pytest.exit(f"{marker} does not exist on the storage server: [storage] projects_dir in rig.toml "
                     f"({rig.projects_dir}) must be whap.projects_dir from the storage server's host_vars.",
                     returncode=4)
-    spec = rig.seed_spec.read_text()
+    spec = _with_admin(rig.seed_spec.read_text(), rig)
     reset_args = ["e2e-reset", *(["--force"] if pytestconfig.getoption("--force-reset") else []), "-"]
     for args in (reset_args, ["e2e-seed", "-"]):
         result = rig.flask(*args, input=spec, check=False)

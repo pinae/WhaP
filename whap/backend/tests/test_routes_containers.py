@@ -236,3 +236,21 @@ def test_container_action_allowed_for_admin(client, db, owned_container, admin_u
     login_as(admin_user)
     resp = client.post(f"/api/containers/{cid}/stop")
     assert resp.status_code == 202, resp.get_data(as_text=True)
+
+
+def test_admins_set_and_clear_a_container_records_ttl_date(admin_client, db, make_local_user, make_project,
+                                                          make_server):
+    owner = make_local_user(username="ttl_owner")
+    project = make_project(owner=owner)
+    server = make_server()
+    created = admin_client.post("/api/admin/containers", json={
+        "user_identifier": f"local:{owner.id}", "project_id": project.id, "compute_server_id": server.id,
+        "image_name": "worker_local_ubuntu2404_ssh", "status": "RUNNING", "gpus": "0",
+        "ttl_date": "2030-10-15"})
+    assert created.status_code == 201, created.get_json()
+    assert created.get_json()["ttl_date"] == "2030-10-15T00:00:00Z"
+    container_id = created.get_json()["id"]
+    changed = admin_client.put(f"/api/admin/containers/{container_id}", json={"ttl_date": "2030-11-01T12:00:00+01:00"})
+    assert changed.get_json()["ttl_date"] == "2030-11-01T11:00:00Z"
+    assert admin_client.put(f"/api/admin/containers/{container_id}", json={"ttl_date": ""}).get_json()["ttl_date"] is None
+    assert admin_client.put(f"/api/admin/containers/{container_id}", json={"ttl_date": "soon"}).status_code == 400

@@ -30,7 +30,8 @@ from flask.cli import with_appcontext
 
 from . import db
 from .models import (ComputeServer, ContainerInstance, Group, GroupCpuLimit, GroupGpuAccess,
-                     GroupMembership, Network, Project, ProjectShare, StaticAddress, UserSSHKey)
+                     GroupMembership, LocalUser, Network, Notification, NotificationSettings, Project,
+                     ProjectShare, StaticAddress, UserSSHKey)
 from .services.task_queue_service import enqueue_delete_directory
 
 DATASET_MARKER = 'e2e-marker.txt'
@@ -124,10 +125,20 @@ def load_spec(data):
     if not group['name']:
         problems.append("group.name is required.")
 
+    admin = None
+    if data.get('admin'):
+        raw = data['admin']
+        admin = {'username': str(raw.get('username', '')).strip(), 'password': str(raw.get('password', ''))}
+        admin['email'] = str(raw.get('email') or f"{admin['username']}@whap.test")
+        if not re.match(r'^[a-z0-9._-]+$', admin['username']):
+            problems.append(f"admin.username '{admin['username']}' must be lower case letters, digits, . _ -")
+        if len(admin['password']) < 8:
+            problems.append("admin.password must be at least 8 characters.")
+
     if problems:
         raise E2EFixtureError("Invalid e2e spec:\n  - " + "\n  - ".join(problems))
     return {'servers': servers, 'network': network, 'addresses': addresses,
-            'group': group, 'dataset': data.get('dataset')}
+            'group': group, 'dataset': data.get('dataset'), 'admin': admin}
 
 
 def _require_test_rig():
@@ -203,8 +214,28 @@ def seed(spec):
     if spec['dataset']:
         report.append(check_dataset(spec['dataset']))
 
+    if spec.get('admin'):
+        report.append(_seed_admin(spec['admin']))
+
     db.session.commit()
     return report
+
+
+def _seed_admin(a):
+    """The local admin the notification tests compose with; its password is set on every seed."""
+    user = db.session.scalar(db.select(LocalUser).filter_by(username=a['username']))
+    line = f"admin {a['username']}: {'updated' if user else 'created'}"
+    if not user:
+        user = LocalUser(username=a['username'])
+        db.session.add(user)
+    user.set_password(a['password'])
+    user.email = a['email']
+    db.session.flush()
+    uid = f"local:{user.id}"
+    membership = db.session.get(GroupMembership, {'user_uid': uid, 'group_id': 0})
+    if not membership:
+        db.session.add(GroupMembership(user_uid=uid, group_id=0, is_group_admin=True))
+    return line
 
 
 def check_dataset(name):
@@ -287,11 +318,34 @@ def reset(spec, force=False, include_infrastructure=False, keep_project_dirs=Fal
         GroupMembership.group_id.in_(db.select(Group.id).filter(Group.name != seeded_group)))).rowcount
     report.append(f"other group memberships of the test users: {memberships} deleted")
 
+    report.extend(_reset_notifications(spec, members))
+
     if include_infrastructure:
         report.extend(_remove_infrastructure(spec))
 
     db.session.commit()
     return report
+
+
+def _reset_notifications(spec, members):
+    """What the notification tests leave: the admin's notifications, the test users'
+    expiry reminders and settings."""
+    admin_uid = None
+    if spec.get('admin'):
+        admin = db.session.scalar(db.select(LocalUser).filter_by(username=spec['admin']['username']))
+        admin_uid = f"local:{admin.id}" if admin else None
+    names = {m.split(':', 1)[1] for m in members}
+    doomed = []
+    if admin_uid:
+        doomed += db.session.scalars(db.select(Notification).filter_by(created_by=admin_uid)).all()
+    doomed += [n for n in db.session.scalars(db.select(Notification).filter_by(kind='expiry'))
+               if n.params_dict.get('username') in names]
+    for notification in set(doomed):
+        db.session.delete(notification)
+    settings = db.session.execute(db.delete(NotificationSettings).filter(
+        NotificationSettings.user_uid.in_([*members, *([admin_uid] if admin_uid else [])]))).rowcount
+    return [f"notifications by the test admin or for the test users: {len(set(doomed))} deleted; "
+            f"their notification settings: {settings} reset"]
 
 
 def _remove_infrastructure(spec):

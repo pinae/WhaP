@@ -63,7 +63,8 @@ function KindFields({ kind, params, set, options }) {
                             renderValue={ids => <Stack direction="row" spacing={0.5}>
                                 {ids.map(id => <Chip key={id} size="small"
                                                      label={options.servers.find(s => s.id === id)?.hostname} />)}</Stack>}>
-                        {options.servers.map(s => <MenuItem key={s.id} value={s.id}>
+                        {options.servers.map(s => <MenuItem key={s.id} value={s.id}
+                                                            data-testid={`composer-server-${s.hostname}`}>
                             {s.hostname} · {s.containers} {s.containers === 1 ? 'container' : 'containers'}</MenuItem>)}
                     </Select>
                 </FormControl>
@@ -109,7 +110,7 @@ function KindFields({ kind, params, set, options }) {
                         renderValue={ids => <Stack direction="row" spacing={0.5}>
                             {ids.map(id => <Chip key={id} size="small" label={options.groups.find(g => g.id === id)?.name} />)}
                         </Stack>}>
-                    {options.groups.map(g => <MenuItem key={g.id} value={g.id}>
+                    {options.groups.map(g => <MenuItem key={g.id} value={g.id} data-testid={`composer-group-${g.name}`}>
                         {g.name} · {g.members} {g.members === 1 ? 'member' : 'members'}</MenuItem>)}
                 </Select>
             </FormControl>
@@ -367,11 +368,11 @@ function NotificationComposer({ id, options, onBack, onDone }) {
                 <FormControl size="small" sx={{ minWidth: 230 }}>
                     <Select value={schedule.mode} onChange={e => setSchedule(s => ({ ...s, mode: e.target.value }))}
                             data-testid="composer-schedule">
-                        <MenuItem value="now">Send now</MenuItem>
+                        <MenuItem value="now" data-testid="composer-when-now">Send now</MenuItem>
                         {form.kind === 'maintenance' &&
-                            <MenuItem value="day_before" disabled={!form.params.start}>
+                            <MenuItem value="day_before" disabled={!form.params.start} data-testid="composer-when-day_before">
                                 Send 1 day before, remind 1 h before</MenuItem>}
-                        <MenuItem value="at">Send at…</MenuItem>
+                        <MenuItem value="at" data-testid="composer-when-at">Send at…</MenuItem>
                     </Select>
                 </FormControl>
                 {schedule.mode === 'at' && (

@@ -27,6 +27,14 @@ def _aware(dt):
     """SQLite hands timestamps back naive; they are stored as UTC."""
     return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
+
+def _admin_ttl(value):
+    """An admin's ttl_date: ISO date or date-time (UTC unless it says otherwise), or empty for none."""
+    if not value:
+        return None
+    # As UTC: SQLite would keep the clock time and drop the offset.
+    return _aware(datetime.fromisoformat(value)).astimezone(timezone.utc)
+
 cont_bp = Blueprint('containers', __name__)
 
 
@@ -464,6 +472,10 @@ def admin_create_container_record():
     required_fields = ['project_id', 'compute_server_id', 'image_name', 'status', 'user_identifier']
     if not all(field in data and data[field] for field in required_fields):
         return jsonify({"message": f"Missing one or more required fields: {', '.join(required_fields)}"}), 400
+    try:
+        ttl_date = _admin_ttl(data.get('ttl_date'))
+    except (TypeError, ValueError):
+        return jsonify({"message": f"ttl_date '{data.get('ttl_date')}' is not a date."}), 400
 
     user_identifier = data['user_identifier']
     user_linkage_data = {}
@@ -506,6 +518,7 @@ def admin_create_container_record():
             static_address_id=static_address_id or None,
             container_name=data.get('container_name'),
             directory_path=data.get('directory_path'),
+            ttl_date=ttl_date,
         )
         db.session.add(new_container)
         db.session.commit()
@@ -526,6 +539,10 @@ def admin_update_container_record(container_id):
     """Admin endpoint to forcefully update a container database record."""
     container = db.get_or_404(ContainerInstance, container_id)
     data = request.get_json()
+    try:
+        _admin_ttl(data.get('ttl_date'))
+    except (TypeError, ValueError):
+        return jsonify({"message": f"ttl_date '{data.get('ttl_date')}' is not a date."}), 400
     current_app.logger.warning(
         f"Admin {current_user.username} initiating direct DB update for Container ID {container_id} with data: {data}")
 
@@ -576,6 +593,10 @@ def admin_update_container_record(container_id):
 
         if 'ssh_key_id' in data:
             container.ssh_key_id = data['ssh_key_id'] or None
+
+        if 'ttl_date' in data:
+            # The record only; prolong writes the date to ttl.txt on the compute server.
+            container.ttl_date = _admin_ttl(data['ttl_date'])
 
         db.session.commit()
         current_app.logger.info(

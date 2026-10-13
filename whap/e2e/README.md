@@ -33,8 +33,9 @@ path argument makes pytest look for its configuration there) or `WHAP_E2E_RIG`
 to point at another rig file, `--headed` to watch the browser, and
 `--matrix full` to run the container matrix on every role (below).
 
-The modules run in order -- identity, one container's lifecycle, then
-the matrix -- whatever their file names, so a broken login fails fast.
+The modules run in order -- identity, notifications, one container's
+lifecycle, then the matrix -- whatever their file names, so a broken login
+fails fast.
 
 ### What a failure leaves behind
 
@@ -66,6 +67,25 @@ container, in about 15 seconds:
   that share and the e2e dataset being offered as volumes
 - the compute server seeing a new project and the e2e dataset under `/data`,
   i.e. the storage server's `projects_dir` mounted there (needs `[compute] shell`)
+
+`tests/test_notifications.py` checks that notifications leave WhaP as mail,
+in about a minute. Every mail on a rig with e2e enabled lands in Mailpit, whose
+API the tests read ([mail] in rig.toml). It needs `[users.admin]` in rig.toml:
+the session's seed creates that local admin with the password given there.
+Instead of starting a container, the admin adds a container record for alice
+and removes it at the end; maintenance and expiry only look at records.
+
+- alice finds her settings behind the gear, with her LDAP address; the test
+  message arrives; switching email off asks first, and keeping it changes nothing
+- the admin composes a maintenance notice for the compute server: the recipient
+  list and the preview name alice's project; sent now, the mail reaches alice
+  with her container, the impact and why she got it; the report shows it
+  delivered; alice's User Panel shows the notice
+- with the record's ttl date two days ahead, the worker sends alice an expiry
+  reminder by itself, naming her project's directory; its link opens the
+  question whether to prolong (answered "Not now": prolonging a record without
+  a container would send Ansible to the compute server); the admin's overview
+  lists the reminder as delivered
 
 `tests/test_container_lifecycle.py` takes one container through its life. It
 creates it through the form with an SSH key, a password and one GPU, using the
@@ -248,6 +268,12 @@ the `ldap` block, which is used again once `e2e` is off.
 Plain `ldap://` is deliberate: the directory has no certificate, and traffic
 never leaves the compose network, which publishes no LDAP port. Never enable
 `e2e` on a production server.
+
+`e2e.enabled` also adds `e2e-mailpit`, which catches every mail WhaP sends --
+whatever `whap.notifications.smtp` says -- and switches Matrix off, so a test
+run writes to no real person. Its web UI and API are on the storage server's
+loopback, port 8025 (`e2e.mail_port` to change it): `ssh -L 8025:localhost:8025
+victor` and http://localhost:8025 shows what was sent.
 
 ### Running it on its own
 

@@ -15,6 +15,17 @@ password = "..."
 uid = "e2e-bob"
 password = "..."
 
+# A local admin for the notification tests; each session's seed creates it
+# with this password. Leave it out to skip those tests.
+[users.admin]
+uid = "e2e-admin"
+password = "..."
+
+[mail]
+# Mailpit's API, which catches every mail on a rig with e2e enabled. The whap
+# role publishes it on the storage server's loopback (whap.e2e.mail_port).
+# api = "http://127.0.0.1:8025"
+
 [storage]
 # How to run a command on the storage server: [] when the tests run there,
 # which is also where they must run from to reach the containers (README.md).
