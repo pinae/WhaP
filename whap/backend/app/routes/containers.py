@@ -119,9 +119,11 @@ def queue_prolong_ttl_job(container, new_ttl_date):
 def get_containers():
     user_linkage_filter_data = current_user.get_container_user_dict()
     user_filter = {k: v for k, v in user_linkage_filter_data.items() if v is not None}
-    query = ContainerInstance.query.filter(ContainerInstance.status != 'DELETED').filter_by(**user_filter)
-    user_containers = query.order_by(ContainerInstance.created_at.desc()).all()
-    return jsonify([c.to_dict() for c in user_containers]), 200
+    user_containers = db.session.scalars(
+        db.select(ContainerInstance).where(ContainerInstance.status != 'DELETED').filter_by(**user_filter)
+        .options(*ContainerInstance.list_options())
+        .order_by(ContainerInstance.created_at.desc())).all()
+    return jsonify(ContainerInstance.dicts(user_containers)), 200
 
 
 @cont_bp.route('/containers/<int:id_no>', methods=['GET'])
@@ -447,10 +449,12 @@ def prolong_container(id_no):
 def admin_get_containers():
     """Admin endpoint to list ALL non-deleted containers."""
     try:
-        all_containers = ContainerInstance.query.filter(ContainerInstance.status != 'DELETED') \
-            .order_by(ContainerInstance.created_at.desc()).all()
-        # Use the extended to_dict or ensure owner info is clear
-        return jsonify([c.to_dict() for c in all_containers]), 200
+        all_containers = db.session.scalars(
+            db.select(ContainerInstance).where(ContainerInstance.status != 'DELETED')
+            .options(*ContainerInstance.list_options())
+            .order_by(ContainerInstance.created_at.desc())).all()
+        # The table shows no logs; a container's log is on its own page.
+        return jsonify(ContainerInstance.dicts(all_containers, include_log=False)), 200
     except Exception as e:
         current_app.logger.error(f"Admin failed to get containers: {e}")
         return jsonify(message="Failed to retrieve containers"), 500

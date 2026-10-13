@@ -257,7 +257,11 @@ function AdminPage() {
         const state = pageState[activeTab];
         if (!state) return null;
 
-        if (state.loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><CircularProgress /></Box>;
+        // A spinner only on the first load: replacing a list on every refresh would
+        // reset its filters and sorting, and make the page jump.
+        if (state.loading && !state.data.length) {
+            return <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><CircularProgress /></Box>;
+        }
         if (state.error) return <Alert severity="error" sx={{ m: 2 }}>{state.error}</Alert>;
 
         // Render specific list components

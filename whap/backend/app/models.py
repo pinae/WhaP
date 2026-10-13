@@ -473,6 +473,16 @@ class ContainerInstance(db.Model):
         return None
 
     @property
+    def username(self):
+        """The owner's username, from the row: the LDAP uid, or the local user's name.
+
+        Not ``self.user.username``, which asks LDAP to return the same uid.
+        """
+        if self.user_local_user_id:
+            return self.local_user.username if self.local_user else 'Unknown'
+        return self.user_uid or 'Unknown'
+
+    @property
     def owner_identifier(self):
         """The prefixed id of the user who started it ("local:<id>" or "ldap:<uid>")."""
         if self.user_local_user_id:
@@ -495,14 +505,39 @@ class ContainerInstance(db.Model):
             return f"{self.user_uid} (LDAP)"
         return "Unknown"
 
-    def to_dict(self):
+    # Relationships to_dict reads, for queries that list many containers.
+    @staticmethod
+    def list_options():
+        from sqlalchemy.orm import selectinload
+        return (selectinload(ContainerInstance.project), selectinload(ContainerInstance.compute_server),
+                selectinload(ContainerInstance.static_address), selectinload(ContainerInstance.local_user),
+                selectinload(ContainerInstance.ssh_key))
+
+    @staticmethod
+    def dicts(containers, include_log=True):
+        """to_dict for many containers; their latest jobs' logs in two queries, not one each."""
+        logs = {}
+        if include_log and containers:
+            latest = {}
+            for container_id, job_id, created in db.session.execute(
+                    db.select(AnsibleJob.container_instance_id, AnsibleJob.id, AnsibleJob.created_at)
+                    .where(AnsibleJob.container_instance_id.in_([c.id for c in containers]))):
+                key = (created or datetime.min, job_id)
+                if container_id not in latest or key > latest[container_id][0]:
+                    latest[container_id] = (key, job_id)
+            logs = dict(db.session.execute(
+                db.select(AnsibleJob.container_instance_id, AnsibleJob.log)
+                .where(AnsibleJob.id.in_([job_id for _, job_id in latest.values()]))).all())
+        return [c.to_dict(include_log=include_log, log=logs.get(c.id)) for c in containers]
+
+    def to_dict(self, include_log=True, log=False):
+        """``log``: the latest job's log if the caller has it (see dicts); else it is looked up."""
         ip = self.static_address.ip_address if self.static_address else None
         mac = self.static_address.mac_address if self.static_address else None
-        latest_job = self.ansible_jobs.first()
-        return {
+        data = {
             'id': self.id,
             'user_display': self.get_user_display(),  # More informative user field
-            'username': self.user.username if self.user else 'Unknown',
+            'username': self.username,
             'project': self.project.name if self.project else None,
             'server': self.compute_server.hostname if self.compute_server else None,
             'server_ssh_port': self.compute_server.ssh_port if self.compute_server else 22,
@@ -518,8 +553,13 @@ class ContainerInstance(db.Model):
             'created_at': _iso_utc(self.created_at),
             'updated_at': _iso_utc(self.updated_at),
             'ttl_date': _iso_utc(self.ttl_date),
-            'ansible_log': latest_job.log if latest_job else None
         }
+        if include_log:
+            if log is False:
+                latest_job = self.ansible_jobs.first()
+                log = latest_job.log if latest_job else None
+            data['ansible_log'] = log
+        return data
 
 
 class LdapUserCache(db.Model):
