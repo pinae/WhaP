@@ -83,8 +83,8 @@ function NotificationReport({ id, timeZone, onBack, onOpenDraft }) {
                 {notification.status === 'cancelled' && (
                     <Button color="error" startIcon={<DeleteIcon />}
                             onClick={() => act(() => api.delete(`${API}/${id}`), onBack)}>Delete</Button>)}
-                <Button onClick={() => copy(false)}>Copy</Button>
-                {notification.status === 'sent' && (
+                {notification.kind !== 'expiry' && <Button onClick={() => copy(false)}>Copy</Button>}
+                {notification.status === 'sent' && notification.kind !== 'expiry' && (
                     <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={() => copy(true)}
                             data-testid="report-follow-up">Follow up with the same people</Button>)}
             </Stack>

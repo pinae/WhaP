@@ -74,7 +74,7 @@ def container_lines(containers):
                      f"{c.compute_server.hostname if c.compute_server else '?'}" for c in containers)
 
 
-def common_fields(notification, config):
+def common_fields(notification, config, now=None):
     """The values that are the same for every recipient."""
     zone = config.get('TIMEZONE') or 'UTC'
     whap_url = (config.get('WHAP_URL') or '').rstrip('/')
@@ -89,6 +89,8 @@ def common_fields(notification, config):
         'timezone': zone,
         'impact': IMPACTS.get(params.get('impact'), ''),
     }
+    if notification.kind == 'expiry' and params.get('ttl_date'):
+        fields.update(expiry_fields(params, zone, whap_url, now))
     start, end = params.get('start'), params.get('end')
     if start:
         fields['start'] = format_time(start, zone)
@@ -98,9 +100,25 @@ def common_fields(notification, config):
     return fields
 
 
-def fields_for(notification, recipient, config):
-    """The values a template may use, for this notification and person."""
-    return {**common_fields(notification, config), 'name': recipient.name, 'username': recipient.username,
+def expiry_fields(params, zone, whap_url, now=None):
+    ttl = datetime.fromisoformat(params['ttl_date']).astimezone(ZoneInfo(zone))
+    today = (now or datetime.now(ZoneInfo(zone))).astimezone(ZoneInfo(zone)).date()
+    days_left = (ttl.date() - today).days
+    expires_in = 'today' if days_left <= 0 else 'tomorrow' if days_left == 1 else f'in {days_left} days'
+    return {
+        'server': params.get('server', ''),
+        'project': params.get('project', ''),
+        'path': f"/home/{params.get('username', '')}/{params.get('project', '')}",
+        'ttl_date': ttl.strftime('%A, %-d %B %Y'),
+        'expires_in': expires_in,
+        'prolong_url': f"{whap_url}/user?tab=containers&prolong={params.get('container_id')}" if whap_url
+        else 'the Prolong button on the container in WhaP',
+    }
+
+
+def fields_for(notification, recipient, config, now=None):
+    """The values a template may use, for this notification and person, as of ``now``."""
+    return {**common_fields(notification, config, now), 'name': recipient.name, 'username': recipient.username,
             'containers': container_lines(recipient.containers)}
 
 
@@ -136,9 +154,9 @@ def finish(notification, subject, body, config):
     return Message(subject=subject, text=text, html=html_body)
 
 
-def render(notification, recipient, config, phase='notice'):
-    """(subject, body) for one recipient, before the footer is added."""
-    fields = fields_for(notification, recipient, config)
+def render(notification, recipient, config, phase='notice', now=None):
+    """(subject, body) for one recipient, before the footer is added, written as of ``now``."""
+    fields = fields_for(notification, recipient, config, now)
     # One line: a line break in a mail header is refused (and would be header injection).
     subject = ' '.join(fill(notification.subject, fields).split())
     if phase == 'reminder':

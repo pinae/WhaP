@@ -7,7 +7,7 @@ be inspected and failed ones retried, and a copy or follow-up started.
 """
 import os
 from collections import Counter
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user, login_required
@@ -15,11 +15,12 @@ from sqlalchemy import func
 
 from .. import admin_required, db
 from ..config import email_configured, matrix_configured
+from ..models import _iso_utc as _iso
 from ..models import (
     ComputeServer, ContainerInstance, ContainerMount, Group, GroupMembership, LocalUser, Notification,
     NotificationDelivery, NotificationSettings,
 )
-from ..notifications import audience, compose, dispatch, render
+from ..notifications import audience, compose, dispatch, expiry, render
 from ..notifications.audience import Recipient
 from ..notifications.compose import ComposeError
 from ..services.ldap_service import LdapUnavailable
@@ -421,3 +422,50 @@ def copy(notification_id):
     db.session.add(draft)
     db.session.commit()
     return jsonify(_summary(draft)), 201
+
+
+# --- automatic expiry reminders ---------------------------------------------------
+
+@notif_bp.route('/admin/notifications/expiry', methods=['GET'])
+@login_required
+@admin_required
+def expiry_overview():
+    """The reminder schedule, those due in the next 7 days, and those sent in the last 7."""
+    now = _now()
+    week = timedelta(days=7)
+    days = expiry.steps()
+    upcoming = []
+    for container in expiry.expiring(now, timedelta(days=max(days)) + week):
+        ttl = expiry._aware(container.ttl_date)
+        for step in days:
+            sends_at = ttl - timedelta(days=step)
+            if now < sends_at <= now + week:
+                upcoming.append({
+                    'container_id': container.id, 'user': container.get_user_display(),
+                    'project': container.project.name if container.project else None,
+                    'server': container.compute_server.hostname if container.compute_server else None,
+                    'ttl_date': _iso(ttl), 'step': step, 'sends_at': _iso(sends_at),
+                })
+    recent = db.session.scalars(
+        db.select(Notification).where(Notification.kind == 'expiry', Notification.created_at >= now - week)
+        .order_by(Notification.created_at.desc())).all()
+    return jsonify({'days': days, 'upcoming': sorted(upcoming, key=lambda r: r['sends_at']),
+                    'recent': [_summary(n) for n in recent]})
+
+
+@notif_bp.route('/admin/notifications/expiry/preview', methods=['GET'])
+@login_required
+@admin_required
+def expiry_preview():
+    """The reminder as the owner of the next local container to expire would read it."""
+    now = _now()
+    candidates = expiry.expiring(now, timedelta(days=366))
+    if not candidates:
+        return jsonify({'subject': expiry.SUBJECT, 'text': expiry.BODY, 'sample': False})
+    container = candidates[0]
+    notification = expiry.notification_for(container, expiry.due_step(container.ttl_date, now, expiry.steps()))
+    recipients = audience.recipients(notification)
+    recipient = recipients[0] if recipients else _me_as_recipient('expiry')
+    message = _message(notification, recipient)['email']
+    return jsonify({'subject': message['subject'], 'text': message['text'], 'html': message['html'],
+                    'sample': True, 'username': recipient.username})

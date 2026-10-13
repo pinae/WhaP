@@ -33,6 +33,7 @@ import SSHKeyList from '../components/SSHKeyList';
 import UserGroupList from '../components/UserGroupList';
 import ClusterStatistics from '../components/ClusterStatistics';
 import Header from '../components/Header';
+import UserNotices from '../components/UserNotices';
 
 import ProjectModal from '../components/ProjectModal';
 import SSHKeyCreateModal from '../components/SSHKeyCreateModal';
@@ -335,6 +336,8 @@ function UserPage() {
                         WhaP can't warn you before your containers are stopped or your local data is deleted.
                     </Alert>
                 )}
+                <UserNotices containers={pageState.containers.loading ? null : pageState.containers.data}
+                             onProlonged={() => fetchData('containers')} />
 
                 <Paper>
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>

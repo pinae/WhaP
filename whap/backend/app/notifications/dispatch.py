@@ -21,7 +21,7 @@ from .. import db
 from ..config import email_configured, matrix_configured
 from ..models import Notification, NotificationDelivery, NotificationSettings
 from ..services.ldap_service import LdapUnavailable
-from . import audience, render
+from . import audience, expiry, render
 from .email_channel import EmailChannel
 from .errors import DeliveryError
 from .matrix_channel import MatrixChannel
@@ -64,10 +64,11 @@ def _due_deliveries(now, limit=BATCH):
 def work_due(now=None):
     """Whether run_once() has anything to do. Cheap: the worker asks often."""
     now = now or _now()
-    return bool(_due_notifications(now) or _due_reminders(now) or _due_deliveries(now, limit=1))
+    return bool(_due_notifications(now) or _due_reminders(now) or _due_deliveries(now, limit=1)
+                or expiry.due(now))
 
 
-def queue(notification, phase='notice'):
+def queue(notification, phase='notice', now=None):
     """Add the deliveries ``notification`` needs for ``phase``; returns how many were added.
 
     Deliveries that already exist are kept, so a dispatch interrupted half-way
@@ -82,7 +83,7 @@ def queue(notification, phase='notice'):
         channels = [c for c in recipient.channels() if (recipient.user_uid, c[0]) not in existing]
         if not channels:
             continue
-        subject, body = render.render(notification, recipient, config, phase)
+        subject, body = render.render(notification, recipient, config, phase, now)
         for channel, address in channels:
             db.session.add(NotificationDelivery(
                 notification_id=notification.id, user_uid=recipient.user_uid, channel=channel, phase=phase,
@@ -98,7 +99,7 @@ def dispatch(now=None):
         notification.status = 'sending'
         db.session.commit()
         try:
-            added = queue(notification, 'notice')
+            added = queue(notification, 'notice', now)
         except LdapUnavailable as e:
             db.session.rollback()
             log.warning(f"Notification {notification.id} waits: {e}")
@@ -110,7 +111,7 @@ def dispatch(now=None):
 
     for notification in _due_reminders(now):
         try:
-            added = queue(notification, 'reminder')
+            added = queue(notification, 'reminder', now)
         except LdapUnavailable as e:
             db.session.rollback()
             log.warning(f"Reminder for notification {notification.id} waits: {e}")
@@ -223,9 +224,13 @@ def deliver(now=None):
 
 
 def run_once(now=None):
-    """Dispatch what is due, then send. LdapUnavailable stops dispatching but not sending."""
+    """Create due expiry reminders, dispatch what is due, then send.
+
+    LdapUnavailable stops dispatching but not sending.
+    """
     now = now or _now()
     try:
+        expiry.scan(now)
         dispatch(now)
     finally:
         deliver(now)
