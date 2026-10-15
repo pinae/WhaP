@@ -89,7 +89,8 @@ Check that it worked:
   images and the registry" in the main README).
 - Build the images before the tests, so no test waits for a CUDA build
   (an hour or more the first time; an image the registry has is pulled instead):
-  `docker exec -it whap-backend flask build-images --server tycho`.
+  `docker exec -it whap-worker flask build-images --server tycho` (the worker:
+  it runs WhaP's Ansible jobs and has the inventory and SSH key).
 
 ## 2. Prepare victor to run the tests
 

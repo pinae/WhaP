@@ -260,8 +260,11 @@ servers. Without a registry each server builds the images itself. The first
 build of an image takes a while, as it includes CUDA. To build the images
 before anyone waits for them, after changing a role or on a fresh registry:
 
-    docker exec -it whap-backend flask build-images --server tycho            # all of them
-    docker exec -it whap-backend flask build-images --server tycho worker_local_ubuntu2604_ssh
+    docker exec -it whap-worker flask build-images --server tycho            # all of them
+    docker exec -it whap-worker flask build-images --server tycho worker_local_ubuntu2604_ssh
+
+In the worker container: it runs WhaP's Ansible jobs, and has the inventory
+and the SSH key for the compute servers.
 
 #### The registry (optional)
 

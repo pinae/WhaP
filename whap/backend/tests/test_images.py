@@ -91,7 +91,15 @@ def test_the_build_files_are_the_ones_the_role_copies():
 # --- flask build-images --------------------------------------------------------------
 
 @pytest.fixture
-def builds(app, monkeypatch, tmp_path):
+def inventory(app):
+    """The Ansible inventory, as the worker container has it (the backend container has none)."""
+    path = Path(app.config["ANSIBLE_PROJECT_DIR"]) / "inventory"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+@pytest.fixture
+def builds(app, monkeypatch, inventory):
     """Runs of ansible-runner: the playbook each was given and the inventory files present then."""
     import app.image_builds as image_builds
     app.config["ANSIBLE_ROLES_PATH"] = str(ROLES_DIR)
@@ -149,7 +157,7 @@ def test_build_images_refuses_an_unknown_server_or_role(app, db, builds, make_se
     assert builds == []
 
 
-def test_build_images_fails_when_ansible_does(app, db, monkeypatch, make_server):
+def test_build_images_fails_when_ansible_does(app, db, monkeypatch, make_server, inventory):
     import app.image_builds as image_builds
     app.config["ANSIBLE_ROLES_PATH"] = str(ROLES_DIR)
     monkeypatch.setattr(image_builds.ansible_runner, "run", lambda **config: SimpleNamespace(status="failed", rc=2))
@@ -166,3 +174,24 @@ def test_without_a_registry_the_images_stay_on_the_server(app, db, builds, make_
     assert result.exit_code == 0, result.output
     assert "built on tycho only" in result.output
     assert builds[0]["playbook"][0]["tasks"][0]["vars"]["service_cfg"]["whap_registry"] == ""
+
+
+def test_build_images_says_where_to_run_it_without_an_inventory(app, db, builds, make_server, inventory):
+    """In the backend container: no inventory, and the runner directory belongs to the worker's user."""
+    inventory.rmdir()
+    make_server(hostname="tycho")
+    result = app.test_cli_runner().invoke(args=["build-images", "--server", "tycho"])
+    assert result.exit_code != 0
+    assert "docker exec -it whap-worker flask build-images" in result.output
+    assert "Traceback" not in result.output and builds == []
+
+
+def test_build_images_says_where_to_run_it_if_it_cannot_write(app, db, builds, make_server, monkeypatch):
+    import app.image_builds as image_builds
+    runner_dir = app.config["ANSIBLE_RUNNER_DIR"]
+    monkeypatch.setattr(image_builds.os, "access", lambda path, mode: path != runner_dir)
+    make_server(hostname="tycho")
+    result = app.test_cli_runner().invoke(args=["build-images", "--server", "tycho"])
+    assert result.exit_code != 0
+    assert f"{runner_dir} is not writable here" in result.output and "whap-worker" in result.output
+    assert builds == []

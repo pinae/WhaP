@@ -36,6 +36,21 @@ def build_playbook(hostname, roles, registry):
     }]
 
 
+WHERE_TO_RUN = ("Run it where WhaP's Ansible jobs run, in the worker container: "
+                "docker exec -it whap-worker flask build-images ...")
+
+
+def check_can_run_ansible(app, inventory_dir):
+    """Ansible needs the inventory (host_vars, SSH settings) and a writable runner
+    directory. In a deployment only the worker container has both; the backend
+    container has neither, and runs as another user."""
+    if not os.path.isdir(inventory_dir):
+        raise click.ClickException(f"There is no Ansible inventory at {inventory_dir} here. {WHERE_TO_RUN}")
+    for directory in (runner_path(app), inventory_dir):
+        if not os.access(directory, os.W_OK):
+            raise click.ClickException(f"{directory} is not writable here. {WHERE_TO_RUN}")
+
+
 @click.command("build-images")
 @click.option("--server", "hostname", required=True, help="The compute server to build on, as WhaP lists it.")
 @click.argument("roles", nargs=-1)
@@ -64,12 +79,14 @@ def build_images_command(hostname, roles):
     if not registry:
         click.echo(f"No DOCKER_REGISTRY: the images are built on {hostname} only.")
 
+    inventory_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'inventory')
+    check_can_run_ansible(app, inventory_dir)
+
     run_id = f"images_{uuid.uuid4().hex[:8]}"
     playbook_path = runner_path(app, 'playbooks', f'{run_id}.yml')
     os.makedirs(os.path.dirname(playbook_path), exist_ok=True)
     with open(playbook_path, 'w') as f:
         yaml.safe_dump(build_playbook(hostname, roles, registry), f, sort_keys=False)
-    inventory_dir = os.path.join(app.config['ANSIBLE_PROJECT_DIR'], 'inventory')
     hosts_file = write_job_inventory(inventory_dir, run_id, server)
     private_data_dir = runner_path(app, run_id)
     os.makedirs(private_data_dir, exist_ok=True)
