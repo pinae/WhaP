@@ -249,6 +249,22 @@ registry. Leave it empty and each compute server builds them itself, the first
 time a container of the role starts there; that takes a while, as the images
 include CUDA.
 
+`whap_registry` is the registry's host name, with `:port` unless it is 443, and
+without `https://`. The compute servers pull from it, and whichever machine
+builds the images pushes to it. Ping proves little: check the registry itself
+on each of them.
+
+    REG=registry.example.org   # your whap_registry
+    curl -sSi https://$REG/v2/ | head -n 5            # 200, or 401 if it wants a login,
+                                                      # with "Docker-Distribution-Api-Version: registry/2.0"
+    curl -sS https://$REG/v2/_catalog                 # the images it has (after docker login, if 401)
+    docker pull $REG/synced_ubuntu2604_ssh:latest     # what a compute server does
+
+If curl reports a certificate problem, the registry's certificate is from a CA
+the machine doesn't trust: put that CA in `/etc/docker/certs.d/$REG/ca.crt` for
+Docker. If Docker reaches the internet through a proxy, the registry must be in
+its `NO_PROXY`.
+
 ### Notifications (optional)
 
 WhaP tells users when a server running their container will restart, when an

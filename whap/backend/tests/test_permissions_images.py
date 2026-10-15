@@ -44,6 +44,8 @@ def test_known_images_are_ordered_first(app, tmp_path):
             "worker_zzz_custom",
             "worker_local_ubuntu2404_ssh",
             "worker_synced_ubuntu2404_ssh",
+            "worker_local_ubuntu2604_ssh",
+            "worker_synced_ubuntu2604_ssh",
         ],
     )
 
@@ -51,10 +53,10 @@ def test_known_images_are_ordered_first(app, tmp_path):
 
     assert error is None
     ids = [img["id"] for img in images]
-    # synced/local 2404 are pinned to the front in that order; extras follow.
-    assert ids[0] == "worker_synced_ubuntu2404_ssh"
-    assert ids[1] == "worker_local_ubuntu2404_ssh"
-    assert "worker_zzz_custom" in ids[2:]
+    # synced/local 2604 (the newest LTS) are pinned to the front, then 2404; extras follow.
+    assert ids[:4] == ["worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh",
+                       "worker_synced_ubuntu2404_ssh", "worker_local_ubuntu2404_ssh"]
+    assert ids[4] == "worker_zzz_custom"
 
 
 def test_unconfigured_roles_path_returns_error(app):

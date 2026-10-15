@@ -36,7 +36,10 @@ def _get_all_system_images(app):
                     images.append({'id': item_name, 'name': display_name})
         images.sort(key=lambda x: x['name'])
 
-        presorted_image_names = ["synced_ubuntu2404_ssh",
+        # The newest LTS first, then the images users know from before.
+        presorted_image_names = ["synced_ubuntu2604_ssh",
+                                 "local_ubuntu2604_ssh",
+                                 "synced_ubuntu2404_ssh",
                                  "local_ubuntu2404_ssh",
                                  "synced_ubuntu2504_ssh",
                                  "local_ubuntu2504_ssh"]
