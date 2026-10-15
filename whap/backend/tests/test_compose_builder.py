@@ -12,10 +12,13 @@ asserting on the *types* of bool/number fields after the round trip and assert
 on string-valued fields and key presence instead.
 """
 
+import re
+from pathlib import Path
+
 import yaml
 import pytest
 
-from app.services.compose_builder import build_compose_file
+from app.services.compose_builder import SHARED_IMAGE_ROLES, build_compose_file
 
 
 def _build(**overrides):
@@ -87,15 +90,19 @@ def test_non_registry_role_has_no_top_level_secrets():
     assert "secrets" not in parsed
 
 
-def test_registry_role_uses_image_and_secrets(monkeypatch):
+SHARED_GENERATIONS = ["ubuntu2510", "ubuntu2604"]
+
+
+@pytest.mark.parametrize("system", SHARED_GENERATIONS)
+def test_registry_role_uses_image_and_secrets(monkeypatch, system):
     monkeypatch.setenv("DOCKER_REGISTRY", "registry.example.com")
     parsed = _build(
-        role_name="worker_synced_ubuntu2510_ssh",
+        role_name=f"worker_synced_{system}_ssh",
         additional_gids=["15000", "15300"],
     )
     svc = _service(parsed)
     assert "build" not in svc
-    assert svc["image"] == "registry.example.com/synced_ubuntu2510_ssh:latest"
+    assert svc["image"] == f"registry.example.com/synced_{system}_ssh:latest"
     # registry path injects identity via environment + a password secret file
     assert "USERNAME=alice" in svc["environment"]
     assert "USER_ID=1000" in svc["environment"]
@@ -109,18 +116,44 @@ def test_registry_role_uses_image_and_secrets(monkeypatch):
     assert parsed["secrets"]["user_password"]["file"] == "./secret_password.txt"
 
 
-def test_image_name_without_registry(monkeypatch):
+@pytest.mark.parametrize("system", SHARED_GENERATIONS)
+def test_image_name_without_registry(monkeypatch, system):
     monkeypatch.delenv("DOCKER_REGISTRY", raising=False)
-    svc = _service(_build(role_name="worker_local_ubuntu2510_ssh"))
-    assert svc["image"] == "local_ubuntu2510_ssh:latest"
+    svc = _service(_build(role_name=f"worker_local_{system}_ssh"))
+    assert svc["image"] == f"local_{system}_ssh:latest"
 
 
-def test_local_registry_role_image_name(monkeypatch):
+@pytest.mark.parametrize("system", SHARED_GENERATIONS)
+def test_local_registry_role_image_name(monkeypatch, system):
     monkeypatch.setenv("DOCKER_REGISTRY", "registry.example.com")
-    svc = _service(_build(role_name="worker_local_ubuntu2510_ssh"))
+    svc = _service(_build(role_name=f"worker_local_{system}_ssh"))
     assert svc["image"] == (
-        "registry.example.com/local_ubuntu2510_ssh:latest"
+        f"registry.example.com/local_{system}_ssh:latest"
     )
+
+
+ROLES_DIR = Path(__file__).resolve().parents[3] / "roles"
+
+
+def _shared_image_in_role(role_dir):
+    """The image a role's compose template pulls, if it is a shared one (whap_registry/<image>:latest)."""
+    template = role_dir / "templates" / "docker-compose.yml.j2"
+    if not template.exists():
+        return None
+    match = re.search(r"whap_registry else '' \}\}([\w.-]+):latest", template.read_text())
+    return match and match.group(1)
+
+
+def test_every_role_that_pulls_a_shared_image_is_known_to_the_compose_builder(monkeypatch):
+    """A role whose template pulls a shared image but is missing from SHARED_IMAGE_ROLES
+    would get a per-user build from WhaP instead, with a build directory nobody prepares."""
+    monkeypatch.delenv("DOCKER_REGISTRY", raising=False)
+    roles = {d.name: _shared_image_in_role(d) for d in ROLES_DIR.iterdir() if d.name.startswith("worker_")}
+    shared = {name: image for name, image in roles.items() if image}
+    assert {"worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh"} <= set(shared)
+    assert set(shared) == SHARED_IMAGE_ROLES
+    for name, image in shared.items():
+        assert _service(_build(role_name=name))["image"] == f"{image}:latest", name
 
 
 def test_no_deploy_block_without_cpu_or_gpu():

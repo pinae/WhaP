@@ -13,6 +13,15 @@ def _docker_registry() -> str:
     return (value or "").rstrip("/")
 
 
+# Roles whose image is the same for every user: the entrypoint sets the user up
+# when the container starts. Their compose file pulls <type>_<system>:latest,
+# from DOCKER_REGISTRY if set; the other roles build an image per user.
+SHARED_IMAGE_ROLES = {
+    "worker_synced_ubuntu2510_ssh", "worker_local_ubuntu2510_ssh",
+    "worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh",
+}
+
+
 def build_compose_file(container_name: str,
                        role_name: str,
                        user: str,
@@ -28,7 +37,7 @@ def build_compose_file(container_name: str,
                        cpu_limit: float = None,
                        gpu_selection: List = ()) -> str:
     _, container_type, system = role_name.split('_', 2)
-    registry_container: bool = role_name in ["worker_synced_ubuntu2510_ssh", "worker_local_ubuntu2510_ssh"]
+    registry_container: bool = role_name in SHARED_IMAGE_ROLES
     container_config = {
         "runtime": "nvidia",
         "ipc": "host",

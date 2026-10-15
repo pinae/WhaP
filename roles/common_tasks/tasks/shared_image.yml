@@ -1,5 +1,5 @@
-# For roles whose image is the same for every user (the 2510 generation: the
-# entrypoint sets the user up at start). With a registry (whap_registry, the
+# For roles whose image is the same for every user (the 2510 and 2604 roles:
+# the entrypoint sets the user up at start). With a registry (whap_registry, the
 # backend's DOCKER_REGISTRY) the compose file pulls the image from there.
 # Without one, nothing would provide it -- compose tried Docker Hub and failed
 # -- so it is built here, once per compute server, and rebuilt (from the layer

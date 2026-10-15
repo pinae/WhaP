@@ -82,7 +82,7 @@ Check that it worked:
   `/data/NFS tycho(rw,sync,no_subtree_check,no_root_squash)`, then `exportfs -ra`.
 - On tycho, Docker can use the GPU:
   `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
-- If you use the registry for the 2510 roles, its images are pushed.
+- If you use the registry for the 2510 and 2604 roles, their images are pushed.
   Otherwise tycho has nothing to pull.
 
 ## 2. Prepare victor to run the tests
