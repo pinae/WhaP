@@ -9,6 +9,7 @@ unpack`` in the worker. Every exit must return a 4-tuple.
 environments where it is not installed (e.g. the authoring sandbox); they run
 in the real backend environment.
 """
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,9 @@ import pytest
 pytest.importorskip("ansible_runner")
 
 from app.services.ansible_service import execute_ansible_job  # noqa: E402
+from app.services.images import image_tag  # noqa: E402
+
+ROLES_DIR = Path(__file__).resolve().parents[3] / "roles"
 
 
 def _noop_callback(_event):
@@ -216,14 +220,16 @@ def test_the_password_is_redacted_everywhere_it_could_leave(app, db, monkeypatch
 def test_the_role_learns_the_registry_the_compose_file_uses(app, db, monkeypatch, tmp_path, make_local_user,
                                                             make_project, make_server, make_network,
                                                             make_static_address, registry):
-    """The 2510 roles reference a shared image. Without a registry they must build it
+    """The roles reference a shared image. Without a registry they must build it
     on the compute server, so they need to know whether there is one; it was never
-    passed, and compose went looking for the image on Docker Hub."""
+    passed, and compose went looking for the image on Docker Hub. The compose file
+    and the role name the same tag: the hash of the role's build files."""
     import json
     import app.services.ansible_service as service
     from app.models import AnsibleJob, ContainerInstance
 
     app.config["DOCKER_REGISTRY"] = registry
+    app.config["ANSIBLE_ROLES_PATH"] = str(ROLES_DIR)
     monkeypatch.setattr(service.ansible_runner, "run", lambda **config: SimpleNamespace(
         status="failed", rc=2, config=SimpleNamespace(artifact_dir=str(tmp_path))))
     owner = make_local_user(username="registry_user")
@@ -243,8 +249,10 @@ def test_the_role_learns_the_registry_the_compose_file_uses(app, db, monkeypatch
 
     service_cfg = json.loads(job.playbook)[0]["roles"][0]["vars"]["service_cfg"]
     assert service_cfg["whap_registry"] == registry
+    tag = service_cfg["image_tag"]
+    assert tag == image_tag("worker_local_ubuntu2510_ssh") and len(tag) == 12
     image = yaml_image(service_cfg["docker_compose_content"])
-    assert image == (f"{registry}/local_ubuntu2510_ssh:latest" if registry else "local_ubuntu2510_ssh:latest")
+    assert image == (f"{registry}/local_ubuntu2510_ssh:{tag}" if registry else f"local_ubuntu2510_ssh:{tag}")
 
 
 def yaml_image(compose_text):

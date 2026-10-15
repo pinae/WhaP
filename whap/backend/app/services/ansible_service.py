@@ -10,6 +10,7 @@ from .. import db
 from ..models import ComputeServer, UserSSHKey
 from ..services.local_file_service import get_gids_for_paths
 from .compose_builder import build_compose_file, _docker_registry
+from .images import image_tag
 from .. import socketio
 
 
@@ -244,6 +245,7 @@ def execute_ansible_job(job, event_callback):
         }
 
         # Generate Docker Compose content using the Python builder
+        tag = image_tag(container.image_name)
         compose_content = build_compose_file(
             container_name=container_docker_name,
             role_name=container.image_name,
@@ -258,9 +260,12 @@ def execute_ansible_job(job, event_callback):
             additional_volumes=additional_volumes,
             additional_gids=[str(gid) for gid in shared_folder_gids],
             cpu_limit=container.cpu_limit,
-            gpu_selection=container.gpus.split(',') if container.gpus else []
+            gpu_selection=container.gpus.split(',') if container.gpus else [],
+            image_tag=tag,
         )
         service_cfg_vars['docker_compose_content'] = quoted(compose_content)
+        # The tag of the shared image; shared_image.yml pulls or builds it.
+        service_cfg_vars['image_tag'] = quoted(tag)
         # The registry the compose file pulls shared images from; empty means the
         # role builds them on the compute server (common_tasks/shared_image.yml).
         service_cfg_vars['whap_registry'] = quoted(_docker_registry())

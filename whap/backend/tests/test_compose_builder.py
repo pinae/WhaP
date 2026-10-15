@@ -12,7 +12,6 @@ asserting on the *types* of bool/number fields after the round trip and assert
 on string-valued fields and key presence instead.
 """
 
-import re
 from pathlib import Path
 
 import yaml
@@ -72,11 +71,16 @@ def test_local_mounts_local_home_and_synced():
     assert "/data/alice/proj/:/home/alice/synced:rw" in svc["volumes"]
 
 
-def test_non_registry_role_uses_build_not_image():
-    svc = _service(_build(role_name="worker_synced_ubuntu2404_ssh"))
+# A role of the older kind, building an image per user: a custom one, kept in
+# another directory of ANSIBLE_ROLES_PATH. All of WhaP's own share an image.
+CUSTOM_ROLE = "worker_synced_custom_ssh"
+
+
+def test_a_custom_role_builds_an_image_per_user():
+    svc = _service(_build(role_name=CUSTOM_ROLE))
     assert "image" not in svc
     build = svc["build"]
-    assert build["context"] == "/docker/worker_synced_ubuntu2404_ssh-alice-proj/build/"
+    assert build["context"] == f"/docker/{CUSTOM_ROLE}-alice-proj/build/"
     assert build["dockerfile"] == "Dockerfile"
     assert build["args"]["USERNAME"] == "alice"
     assert build["args"]["USER_ID"] == "1000"
@@ -85,30 +89,26 @@ def test_non_registry_role_uses_build_not_image():
     assert build["args"]["USER_COMMENT"] == "alice"
 
 
-def test_non_registry_role_has_no_top_level_secrets():
-    parsed = _build(role_name="worker_synced_ubuntu2404_ssh")
+def test_a_custom_role_has_no_top_level_secrets():
+    parsed = _build(role_name=CUSTOM_ROLE)
     assert "secrets" not in parsed
 
 
-SHARED_GENERATIONS = ["ubuntu2510", "ubuntu2604"]
-
-
-@pytest.mark.parametrize("system", SHARED_GENERATIONS)
-def test_registry_role_uses_image_and_secrets(monkeypatch, system):
+@pytest.mark.parametrize("role", sorted(SHARED_IMAGE_ROLES))
+def test_shared_image_roles_run_their_tagged_image_with_the_user_as_environment(monkeypatch, role):
     monkeypatch.setenv("DOCKER_REGISTRY", "registry.example.com")
-    parsed = _build(
-        role_name=f"worker_synced_{system}_ssh",
-        additional_gids=["15000", "15300"],
-    )
+    parsed = _build(role_name=role, additional_gids=["15000", "15300"], image_tag="0123abcd4567",
+                    password="Pa55-only-in-the-secret-file")
     svc = _service(parsed)
     assert "build" not in svc
-    assert svc["image"] == f"registry.example.com/synced_{system}_ssh:latest"
-    # registry path injects identity via environment + a password secret file
+    assert svc["image"] == f"registry.example.com/{role.removeprefix('worker_')}:0123abcd4567"
+    # The user and the password reach the entrypoint at start, not the image.
     assert "USERNAME=alice" in svc["environment"]
     assert "USER_ID=1000" in svc["environment"]
     assert "GROUP_ID=1000" in svc["environment"]
     assert "PASSWORD_FILE=/run/secrets/user_password_file" in svc["environment"]
     assert "ADDITIONAL_GIDS=15000,15300" in svc["environment"]
+    assert "Pa55-only-in-the-secret-file" not in yaml.safe_dump(parsed)
     # service-level secret reference
     assert svc["secrets"][0]["source"] == "user_password"
     assert svc["secrets"][0]["target"] == "user_password_file"
@@ -116,44 +116,23 @@ def test_registry_role_uses_image_and_secrets(monkeypatch, system):
     assert parsed["secrets"]["user_password"]["file"] == "./secret_password.txt"
 
 
-@pytest.mark.parametrize("system", SHARED_GENERATIONS)
-def test_image_name_without_registry(monkeypatch, system):
+def test_image_name_without_registry(monkeypatch):
     monkeypatch.delenv("DOCKER_REGISTRY", raising=False)
-    svc = _service(_build(role_name=f"worker_local_{system}_ssh"))
-    assert svc["image"] == f"local_{system}_ssh:latest"
-
-
-@pytest.mark.parametrize("system", SHARED_GENERATIONS)
-def test_local_registry_role_image_name(monkeypatch, system):
-    monkeypatch.setenv("DOCKER_REGISTRY", "registry.example.com")
-    svc = _service(_build(role_name=f"worker_local_{system}_ssh"))
-    assert svc["image"] == (
-        f"registry.example.com/local_{system}_ssh:latest"
-    )
+    svc = _service(_build(role_name="worker_local_ubuntu2604_ssh", image_tag="0123abcd4567"))
+    assert svc["image"] == "local_ubuntu2604_ssh:0123abcd4567"
 
 
 ROLES_DIR = Path(__file__).resolve().parents[3] / "roles"
 
 
-def _shared_image_in_role(role_dir):
-    """The image a role's compose template pulls, if it is a shared one (whap_registry/<image>:latest)."""
-    template = role_dir / "templates" / "docker-compose.yml.j2"
-    if not template.exists():
-        return None
-    match = re.search(r"whap_registry else '' \}\}([\w.-]+):latest", template.read_text())
-    return match and match.group(1)
-
-
-def test_every_role_that_pulls_a_shared_image_is_known_to_the_compose_builder(monkeypatch):
-    """A role whose template pulls a shared image but is missing from SHARED_IMAGE_ROLES
-    would get a per-user build from WhaP instead, with a build directory nobody prepares."""
-    monkeypatch.delenv("DOCKER_REGISTRY", raising=False)
-    roles = {d.name: _shared_image_in_role(d) for d in ROLES_DIR.iterdir() if d.name.startswith("worker_")}
-    shared = {name: image for name, image in roles.items() if image}
-    assert {"worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh"} <= set(shared)
-    assert set(shared) == SHARED_IMAGE_ROLES
-    for name, image in shared.items():
-        assert _service(_build(role_name=name))["image"] == f"{image}:latest", name
+def test_the_roles_that_provide_a_shared_image_are_the_ones_the_compose_builder_knows():
+    """A role whose tasks provide a shared image (shared_image.yml) but which is missing
+    from SHARED_IMAGE_ROLES would get a per-user build from WhaP, which nothing prepares."""
+    shared = {d.name for d in ROLES_DIR.iterdir()
+              if (d / "tasks" / "main.yml").exists() and "tasks_from: shared_image" in (d / "tasks" / "main.yml").read_text()}
+    assert shared == SHARED_IMAGE_ROLES
+    for role in shared:
+        assert (ROLES_DIR / role / "tasks" / "build.yml").exists(), f"{role}: flask build-images runs tasks/build.yml"
 
 
 def test_no_deploy_block_without_cpu_or_gpu():

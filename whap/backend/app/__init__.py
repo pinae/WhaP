@@ -169,6 +169,9 @@ def create_app(config_class=Config):
         app.cli.add_command(e2e_seed_command)
         app.cli.add_command(e2e_reset_command)
 
+        from .image_builds import build_images_command
+        app.cli.add_command(build_images_command)
+
         return app
 
 

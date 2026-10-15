@@ -82,8 +82,14 @@ Check that it worked:
   `/data/NFS tycho(rw,sync,no_subtree_check,no_root_squash)`, then `exportfs -ra`.
 - On tycho, Docker can use the GPU:
   `docker run --rm --gpus all ubuntu nvidia-smi` shows the 2070 Super.
-- If you use the registry for the 2510 and 2604 roles, their images are pushed.
-  Otherwise tycho has nothing to pull.
+- With a registry (`whap_registry`), tycho can pull from it and push to it:
+  `curl -sS https://<registry>/v2/_catalog` on tycho lists its images. tycho
+  pushes every image it builds there, and victor's production WhaP uses the
+  same builds (an image's tag is the hash of its role's files; see "Container
+  images and the registry" in the main README).
+- Build the images before the tests, so no test waits for a CUDA build
+  (an hour or more the first time; an image the registry has is pulled instead):
+  `docker exec -it whap-backend flask build-images --server tycho`.
 
 ## 2. Prepare victor to run the tests
 
@@ -134,7 +140,8 @@ In **rig.toml**:
 - `[compute] shell = ["ssh", "tycho"]`, if you set up SSH in step 2.
 - `[container]`:
   - `gpu_name = "2070"`
-  - `start_timeout = 3600` for the first run, because every image builds once.
+  - `start_timeout = 3600` for the first run, unless you ran `flask build-images`
+    (step 1): otherwise each image builds when its first container starts.
 - `[torch] index_url`: a CUDA build tycho's driver supports.
   `nvidia-smi` on tycho shows "CUDA Version: 12.x"; e.g. `https://download.pytorch.org/whl/cu126`.
 
@@ -146,8 +153,8 @@ Each step only makes sense once the previous one passes.
 cd ~/WhaP/whap/e2e
 uv run pytest tests/test_identity.py            # under a minute: LDAP, keys, projects, shares
 uv run pytest tests/test_notifications.py       # a minute: settings, a maintenance notice, an expiry reminder
-uv run pytest tests/test_container_lifecycle.py  # one container end to end; first run builds an image and installs torch
-uv run pytest                                   # everything: 10 containers, ~12 min once images exist; the first run builds them all
+uv run pytest tests/test_container_lifecycle.py  # one container end to end; installs torch
+uv run pytest                                   # everything: 10 containers, ~12 min once images exist
 uv run pytest --matrix full                     # later: auth and volume cases on every role as well
 ```
 

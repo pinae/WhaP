@@ -1,44 +1,81 @@
-# For roles whose image is the same for every user (the 2510 and 2604 roles:
-# the entrypoint sets the user up at start). With a registry (whap_registry, the
-# backend's DOCKER_REGISTRY) the compose file pulls the image from there.
-# Without one, nothing would provide it -- compose tried Docker Hub and failed
-# -- so it is built here, once per compute server, and rebuilt (from the layer
-# cache, quickly) when the role's Dockerfile or files change.
-- name: "Build the shared image {{ shared_image }} on this server"
-  when: (service_cfg.whap_registry | default('') | length) == 0
+# Makes sure this server has the image the role's containers share (the
+# entrypoint sets the user up when a container starts), under the name the
+# compose file uses: [<whap_registry>/]<image>:<image_tag>.
+#
+# image_tag is a hash of the role's build files, which WhaP computes
+# (app/services/images.py; it hashes the files copied below). A change to them
+# makes a new tag, so an image is never replaced under the same name, and a
+# test build can't change what other containers run.
+#
+#   1. The server has the image: nothing to do.
+#   2. With a registry (whap_registry, the backend's DOCKER_REGISTRY) that has
+#      it: pull it.
+#   3. Otherwise build it here, and push it to the registry if there is one,
+#      so other servers pull it instead of building it again.
+- name: "Provide the image of {{ service_cfg.image_name }}"
   vars:
     shared_image: "{{ service_cfg.image_name | regex_replace('^worker_', '') }}"
+    registry: "{{ service_cfg.whap_registry | default('') }}"
+    image_ref: "{{ (registry ~ '/') if registry else '' }}{{ shared_image }}"
+    image_tag: "{{ service_cfg.image_tag | default('latest') }}"
     build_dir: "{{ docker_dir }}/images/{{ shared_image }}"
   block:
-    - name: "Ensure {{ build_dir }} exists"
+    - name: "Look for {{ image_ref }}:{{ image_tag }} on this server"
       become: true
-      ansible.builtin.file:
-        path: "{{ build_dir }}"
-        state: directory
-        mode: "0755"
+      community.docker.docker_image_info:
+        name: "{{ image_ref }}:{{ image_tag }}"
+      register: shared_image_here
 
-    - name: "Copy the build files for {{ shared_image }}"
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ build_dir }}/{{ item }}"
-        mode: "0644"
-      loop: [entrypoint.sh, nopasswd]
-
-    - name: "Prepare the Dockerfile for {{ shared_image }}"
-      become: true
-      ansible.builtin.template:
-        src: Dockerfile.j2
-        dest: "{{ build_dir }}/Dockerfile"
-        mode: "0644"
-
-    - name: "Build {{ shared_image }}:latest (the first time takes a while: CUDA)"
+    - name: "Pull {{ image_ref }}:{{ image_tag }} from the registry"
+      when: registry | length > 0 and not shared_image_here.images
       become: true
       community.docker.docker_image:
-        name: "{{ shared_image }}:latest"
-        source: build
-        force_source: true
-        build:
-          path: "{{ build_dir }}"
-          dockerfile: Dockerfile
-      register: shared_image_build
+        name: "{{ image_ref }}"
+        tag: "{{ image_tag }}"
+        source: pull
+      failed_when: false  # the registry doesn't have it yet: it is built below
+
+    - name: "Look for {{ image_ref }}:{{ image_tag }} again"
+      become: true
+      community.docker.docker_image_info:
+        name: "{{ image_ref }}:{{ image_tag }}"
+      register: shared_image_now
+
+    - name: "Build {{ image_ref }}:{{ image_tag }} here"
+      when: not shared_image_now.images
+      block:
+        - name: "Ensure {{ build_dir }} exists"
+          become: true
+          ansible.builtin.file:
+            path: "{{ build_dir }}"
+            state: directory
+            mode: "0755"
+
+        # The files WhaP hashes for the tag (images.BUILD_FILES): keep in step.
+        - name: "Copy the build files for {{ shared_image }}"
+          become: true
+          ansible.builtin.copy:
+            src: "{{ item }}"
+            dest: "{{ build_dir }}/{{ item }}"
+            mode: "0644"
+          loop: [entrypoint.sh, nopasswd]
+
+        - name: "Prepare the Dockerfile for {{ shared_image }}"
+          become: true
+          ansible.builtin.template:
+            src: Dockerfile.j2
+            dest: "{{ build_dir }}/Dockerfile"
+            mode: "0644"
+
+        - name: "Build {{ image_ref }}:{{ image_tag }}{{ ' and push it' if registry else '' }} (the first time takes a while: CUDA)"
+          become: true
+          community.docker.docker_image:
+            name: "{{ image_ref }}"
+            tag: "{{ image_tag }}"
+            source: build
+            push: "{{ registry | length > 0 }}"
+            build:
+              path: "{{ build_dir }}"
+              dockerfile: Dockerfile
+              pull: true  # the newest base image, not one cached here
+          register: shared_image_build

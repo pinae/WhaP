@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS ubuntu2204_cuda117
+FROM ubuntu:22.04
 
 # Set environment variables for non-interactive installs and locale
 ENV DEBIAN_FRONTEND=noninteractive
@@ -53,80 +53,17 @@ RUN dpkg-query -W -f '${Package}\n' 'libnvidia-*' 2>/dev/null \
 #RUN apt-get install -y unminimize
 #RUN echo "y\nY" | unminimize
 
-# =================================================================
-# --- Stage 2: Final Image                                      ---
-# =================================================================
-FROM ubuntu2204_cuda117
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Use ARG to define build-time variables. The Ansible script will
-# pass values to these arguments.
-ARG USERNAME={{ service_cfg.user }}
-ARG USER_ID={{ service_cfg.user_id }}
-ARG GROUP_ID={{ service_cfg.group_id }}
-ARG PASSWORD={{ service_cfg.password }}
-ARG USER_COMMENT="LDAP User {{ service_cfg.user }}"
-ARG ADDITIONAL_GIDS={{ service_cfg.additional_gids | join(',') }}
+RUN mkdir -p /run/sshd
 
-# Configure SSH and create the user based on the build arguments
-RUN echo "root:${PASSWORD}" | chpasswd \
-    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
-    # First, check if a user with the target UID already exists and delete them.
-    && if getent passwd ${USER_ID} > /dev/null; then \
-        EXISTING_USER=$(getent passwd ${USER_ID} | cut -d: -f1); \
-        echo "User with UID ${USER_ID} (${EXISTING_USER}) already exists. Deleting."; \
-        deluser --remove-home ${EXISTING_USER}; \
-    fi && \
-    \
-    # Check if a group with the target GID already exists and delete it.
-    if getent group ${GROUP_ID} > /dev/null; then \
-        EXISTING_GROUP=$(getent group ${GROUP_ID} | cut -d: -f1); \
-        # Only delete if it's not the user's intended group name to avoid errors
-        if [ "${EXISTING_GROUP}" != "${USERNAME}" ]; then \
-            echo "Group with GID ${GROUP_ID} (${EXISTING_GROUP}) already exists. Deleting."; \
-            delgroup ${EXISTING_GROUP}; \
-        fi; \
-    fi \
-    && groupadd --gid ${GROUP_ID} ${USERNAME} \
-    && useradd --uid ${USER_ID} --gid ${GROUP_ID} -m -s /bin/bash --comment "${USER_COMMENT}" ${USERNAME} \
-    && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
-    && chmod 0440 /etc/sudoers.d/${USERNAME} \
-    && echo "${USERNAME}:${PASSWORD}" | chpasswd \
-    && if [ -n "${ADDITIONAL_GIDS}" ]; then \
-        # Convert comma-separated string to space-separated for the loop
-        GIDS_TO_PROCESS=$(echo ${ADDITIONAL_GIDS} | sed 's/,/ /g'); \
-        GROUP_NAMES_LIST=""; \
-        \
-        # Ensure all groups exist, creating them if necessary
-        for GID in ${GIDS_TO_PROCESS}; do \
-            if ! getent group ${GID} > /dev/null; then \
-                echo "Group with GID ${GID} does not exist. Creating it as shared_group_${GID}."; \
-                groupadd --gid ${GID} shared_group_${GID}; \
-            fi; \
-            # Get the group name for the given GID
-            GROUP_NAME=$(getent group ${GID} | cut -d: -f1); \
-            # Append the group name to our comma-separated list
-            GROUP_NAMES_LIST="${GROUP_NAMES_LIST},${GROUP_NAME}"; \
-        done; \
-        \
-        # Add the user to all the supplementary groups at once
-        # The ${GROUP_NAMES_LIST#,} removes the leading comma
-        if [ -n "${GROUP_NAMES_LIST}" ]; then \
-             usermod -aG ${GROUP_NAMES_LIST#,} ${USERNAME}; \
-             echo "Added user ${USERNAME} to groups: ${GROUP_NAMES_LIST#,}"; \
-        fi; \
-    fi
-
-# Copy additional sudoers configuration if it exists in your build context
-# Ensure the 'nopasswd' file is present where you run 'docker build'
 COPY nopasswd /etc/sudoers.d/nopasswd
 RUN chmod 0440 /etc/sudoers.d/nopasswd
 
-# Switch context to the new user's home directory
-WORKDIR /home/${USERNAME}
-USER ${USERNAME}
-
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # Start OpenSSH
 USER root
 RUN ssh-keygen -A
 EXPOSE 22
-CMD ["sh", "-c", "mkdir -p /run/sshd && /usr/sbin/sshd -D"]
+CMD ["/usr/sbin/sshd", "-D"]

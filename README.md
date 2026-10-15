@@ -239,31 +239,51 @@ If you clone `my-whap` on another machine, fetch the submodule too:
     # or, in an existing checkout:
     git submodule update --init --recursive
 
-### Docker registry (optional)
+### Container images and the registry
 
-The 2510 and 2604 roles (Ubuntu 25.10 and 26.04) use one image per role for
-every user (the user is set up when the container starts); the backend lists
-them in `SHARED_IMAGE_ROLES` (`compose_builder.py`). Set `whap_registry` in your
-host_vars (`DOCKER_REGISTRY` in `.env.prod`) to pull these images from a
-registry. Leave it empty and each compute server builds them itself, the first
-time a container of the role starts there; that takes a while, as the images
-include CUDA.
+Every container role (all `worker_*` roles except `worker_ollama`) has one
+image for all its users: the user, their IDs and their password are set up by
+the entrypoint when a container starts, so nothing about a user is in an
+image. The backend lists these roles in `SHARED_IMAGE_ROLES`
+(`compose_builder.py`).
 
-`whap_registry` is the registry's host name, with `:port` unless it is 443, and
-without `https://`. The compute servers pull from it, and whichever machine
-builds the images pushes to it. Ping proves little: check the registry itself
-on each of them.
+An image's tag is a hash of the files it is built from (`Dockerfile.j2`,
+`entrypoint.sh`, `nopasswd`), e.g. `synced_ubuntu2604_ssh:7b4249e68c55`. Change
+a role's image and it gets a new tag; an image is never replaced under a tag in
+use, so a test rig's build can't change what production runs, and production
+reuses what the test rig built from the same files.
+
+Before a container starts, its compute server makes sure it has the image
+(`common_tasks/tasks/shared_image.yml`): it uses its own copy, else pulls it
+from the registry, else builds it and pushes it to the registry for the other
+servers. Without a registry each server builds the images itself. The first
+build of an image takes a while, as it includes CUDA. To build the images
+before anyone waits for them, after changing a role or on a fresh registry:
+
+    docker exec -it whap-backend flask build-images --server tycho            # all of them
+    docker exec -it whap-backend flask build-images --server tycho worker_local_ubuntu2604_ssh
+
+#### The registry (optional)
+
+Set `whap_registry` in your host_vars (`DOCKER_REGISTRY` in `.env.prod`): the
+registry's host name, with `:port` unless it is 443, and without `https://`.
+The compute servers pull from it and push what they build. Ping proves
+little: check the registry itself on each of them.
 
     REG=registry.example.org   # your whap_registry
     curl -sSi https://$REG/v2/ | head -n 5            # 200, or 401 if it wants a login,
                                                       # with "Docker-Distribution-Api-Version: registry/2.0"
     curl -sS https://$REG/v2/_catalog                 # the images it has (after docker login, if 401)
-    docker pull $REG/synced_ubuntu2604_ssh:latest     # what a compute server does
+    curl -sS https://$REG/v2/synced_ubuntu2604_ssh/tags/list   # the builds of one image
 
 If curl reports a certificate problem, the registry's certificate is from a CA
 the machine doesn't trust: put that CA in `/etc/docker/certs.d/$REG/ca.crt` for
 Docker. If Docker reaches the internet through a proxy, the registry must be in
-its `NO_PROXY`.
+its `NO_PROXY`. If the registry wants a login, `docker login $REG` on each
+compute server, as the user Ansible connects as.
+
+Old tags stay in the registry until you delete them; a registry with deletion
+enabled frees their space with its garbage collector.
 
 ### Notifications (optional)
 

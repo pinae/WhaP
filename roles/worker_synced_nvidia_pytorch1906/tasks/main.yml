@@ -33,11 +33,18 @@
 
 - ansible.builtin.import_role:
     name: common_tasks
-    tasks_from: build_image
+    tasks_from: ensure_network
 
 - ansible.builtin.import_role:
     name: common_tasks
-    tasks_from: ensure_network
+    tasks_from: shared_image
+
+- name: Create local password file for Docker Secret
+  no_log: true  # the content is the container password
+  ansible.builtin.copy:
+    content: "{{ service_cfg.password }}"
+    dest: "{{ service_cfg.directory }}/secret_password.txt"
+    mode: '0600'
 
 - ansible.builtin.import_role:
     name: common_tasks

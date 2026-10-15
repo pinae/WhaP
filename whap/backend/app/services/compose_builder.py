@@ -14,11 +14,16 @@ def _docker_registry() -> str:
 
 
 # Roles whose image is the same for every user: the entrypoint sets the user up
-# when the container starts. Their compose file pulls <type>_<system>:latest,
-# from DOCKER_REGISTRY if set; the other roles build an image per user.
+# when the container starts. Their compose file names <type>_<system>:<tag>,
+# from DOCKER_REGISTRY if set; the tag is the hash of the role's build files
+# (images.image_tag). Other roles (custom ones elsewhere in ANSIBLE_ROLES_PATH)
+# build an image per user.
 SHARED_IMAGE_ROLES = {
+    "worker_synced_ubuntu2404_ssh", "worker_local_ubuntu2404_ssh",
+    "worker_synced_ubuntu2504_ssh", "worker_local_ubuntu2504_ssh",
     "worker_synced_ubuntu2510_ssh", "worker_local_ubuntu2510_ssh",
     "worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh",
+    "worker_local_cuda-11-7_ubuntu2204_ssh", "worker_synced_nvidia_pytorch1906",
 }
 
 
@@ -35,7 +40,8 @@ def build_compose_file(container_name: str,
                        additional_volumes: List = (),
                        additional_gids: List = (),
                        cpu_limit: float = None,
-                       gpu_selection: List = ()) -> str:
+                       gpu_selection: List = (),
+                       image_tag: str = "latest") -> str:
     _, container_type, system = role_name.split('_', 2)
     registry_container: bool = role_name in SHARED_IMAGE_ROLES
     container_config = {
@@ -65,7 +71,7 @@ def build_compose_file(container_name: str,
         container_config["volumes"].append(additional_volume)
     if registry_container:
         registry = _docker_registry()
-        image = f"{container_type}_{system}:latest"
+        image = f"{container_type}_{system}:{image_tag}"
         container_config["image"] = f"{registry}/{image}" if registry else image
         container_config["environment"].append("USERNAME=" + user)
         container_config["environment"].append("USER_ID=" + str(user_id))
