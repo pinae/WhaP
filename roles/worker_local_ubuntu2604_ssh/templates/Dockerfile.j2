@@ -34,6 +34,14 @@ RUN for distro in ubuntu2604 ubuntu2404; do \
     && apt-get -y install cuda-toolkit-13 cudnn9-cuda-13 libnvidia-compute-580-server libgl-dev libvdpau-dev
 RUN apt-get -y install nvtop
 
+# Ubuntu's nvtop gives itself CAP_PERFMON (setcap in its postinst), for Intel
+# GPUs' performance counters. Docker doesn't grant containers that capability,
+# so the kernel refuses to run nvtop at all: "Operation not permitted". NVIDIA
+# GPUs don't need it. Remove it, and again whenever apt reinstalls nvtop.
+RUN echo 'DPkg::Post-Invoke { "if [ -e /usr/bin/nvtop ]; then setcap -r /usr/bin/nvtop 2>/dev/null || true; fi"; };' \
+      > /etc/apt/apt.conf.d/99nvtop-without-capabilities \
+    && setcap -r /usr/bin/nvtop
+
 # nvcc and the other CUDA tools on the PATH: ENV for docker exec, profile.d
 # for SSH logins, which don't see the image's ENV.
 ENV PATH=/usr/local/cuda/bin:${PATH}
