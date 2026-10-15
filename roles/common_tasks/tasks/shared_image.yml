@@ -12,6 +12,12 @@
 #      it: pull it.
 #   3. Otherwise build it here, and push it to the registry if there is one,
 #      so other servers pull it instead of building it again.
+#
+# Pushing is a step of its own, tried three times. When a container is being
+# started, a failed push is only a warning: the image is here, the container
+# can start. `flask build-images` (tasks/build.yml) sets shared_image_publish:
+# it fails if the push does, and pushes an image this server already has, so a
+# run after a failed push completes it without building again.
 - name: "Provide the image of {{ service_cfg.image_name }}"
   vars:
     shared_image: "{{ service_cfg.image_name | regex_replace('^worker_', '') }}"
@@ -19,6 +25,7 @@
     image_ref: "{{ (registry ~ '/') if registry else '' }}{{ shared_image }}"
     image_tag: "{{ service_cfg.image_tag | default('latest') }}"
     build_dir: "{{ docker_dir }}/images/{{ shared_image }}"
+    publish: "{{ shared_image_publish | default(false) | bool }}"
   block:
     - name: "Look for {{ image_ref }}:{{ image_tag }} on this server"
       become: true
@@ -33,6 +40,7 @@
         name: "{{ image_ref }}"
         tag: "{{ image_tag }}"
         source: pull
+      register: shared_image_pull
       failed_when: false  # the registry doesn't have it yet: it is built below
 
     - name: "Look for {{ image_ref }}:{{ image_tag }} again"
@@ -67,15 +75,38 @@
             dest: "{{ build_dir }}/Dockerfile"
             mode: "0644"
 
-        - name: "Build {{ image_ref }}:{{ image_tag }}{{ ' and push it' if registry else '' }} (the first time takes a while: CUDA)"
+        - name: "Build {{ image_ref }}:{{ image_tag }} (the first time takes a while: CUDA)"
           become: true
           community.docker.docker_image:
             name: "{{ image_ref }}"
             tag: "{{ image_tag }}"
             source: build
-            push: "{{ registry | length > 0 }}"
             build:
               path: "{{ build_dir }}"
               dockerfile: Dockerfile
               pull: true  # the newest base image, not one cached here
           register: shared_image_build
+
+    # Built here, or (publishing) here but not just pulled from the registry.
+    # Layers the registry has already are not uploaded again.
+    - name: "Push {{ image_ref }}:{{ image_tag }} to the registry"
+      when: >-
+        registry | length > 0 and
+        (shared_image_build is changed or (publish | bool and shared_image_pull is not changed))
+      become: true
+      community.docker.docker_image:
+        name: "{{ image_ref }}"
+        tag: "{{ image_tag }}"
+        source: local
+        push: true
+        timeout: 900  # seconds without a word from Docker; a CUDA layer is gigabytes
+      register: shared_image_push
+      retries: 3
+      delay: 30
+      until: shared_image_push is succeeded
+      ignore_errors: "{{ not (publish | bool) }}"
+
+    - name: "Could not push {{ image_ref }}:{{ image_tag }}: other servers will build it themselves"
+      when: shared_image_push is failed
+      ansible.builtin.debug:
+        msg: "{{ shared_image_push.msg | default('') }}"

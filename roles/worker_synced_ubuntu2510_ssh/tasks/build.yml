@@ -1,6 +1,9 @@
-# Build this role's image and push it to the registry, unless the registry or
-# this server already has it: `flask build-images` runs these tasks to have the
-# images ready before the first container needs them.
+# Build this role's image and push it to the registry; `flask build-images`
+# runs these tasks to have the images ready before the first container needs
+# them. An image this server or the registry already has is not built again;
+# one only this server has is pushed.
 - ansible.builtin.import_role:
     name: common_tasks
     tasks_from: shared_image
+  vars:
+    shared_image_publish: true

@@ -256,9 +256,11 @@ reuses what the test rig built from the same files.
 Before a container starts, its compute server makes sure it has the image
 (`common_tasks/tasks/shared_image.yml`): it uses its own copy, else pulls it
 from the registry, else builds it and pushes it to the registry for the other
-servers. Without a registry each server builds the images itself. The first
+servers. If that push fails, the container still starts and the job log has a
+warning. Without a registry each server builds the images itself. The first
 build of an image takes a while, as it includes CUDA. To build the images
-before anyone waits for them, after changing a role or on a fresh registry:
+before anyone waits for them, after changing a role or on a fresh registry
+(this also pushes images a server built but couldn't push):
 
     docker exec -it whap-worker flask build-images --server tycho            # all of them
     docker exec -it whap-worker flask build-images --server tycho worker_local_ubuntu2604_ssh
@@ -278,6 +280,14 @@ little: check the registry itself on each of them.
                                                       # with "Docker-Distribution-Api-Version: registry/2.0"
     curl -sS https://$REG/v2/_catalog                 # the images it has (after docker login, if 401)
     curl -sS https://$REG/v2/synced_ubuntu2604_ssh/tags/list   # the builds of one image
+
+Pushing sends the image's layers, gigabytes for the CUDA ones, through
+whatever is in front of the registry. A proxy must let such an upload take as
+long as it needs. Traefik v3 cuts any request off after 60 seconds by default
+and answers `499 Client Closed Request`: raise
+`entryPoints.<name>.transport.respondingTimeouts.readTimeout` for the registry's
+entry point (`0` = no limit). Behind nginx: `client_max_body_size 0;`,
+`proxy_request_buffering off;` and a long `proxy_read_timeout`.
 
 If curl reports a certificate problem, the registry's certificate is from a CA
 the machine doesn't trust: put that CA in `/etc/docker/certs.d/$REG/ca.crt` for
