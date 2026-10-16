@@ -1,0 +1,95 @@
+# The end-to-end suite as one Ansible run: for a Semaphore task template (see
+# ../RUNNING-ON-THE-RIG.md, "Semaphore"), or by hand:
+#
+#   ansible-playbook -i victor, whap/e2e/ci/e2e.yml -e e2e_pytest_args="--matrix full"
+#
+# It runs on the machine that runs the tests (victor), as the user whose
+# checkout, rig.toml and docker group membership the manual runs use. That
+# machine needs nothing new: Semaphore only connects to it over SSH.
+#
+#   1. Bring the checkout of the test code up to date (e2e_update).
+#   2. Build the images on the compute server and push them to the registry
+#      (e2e_build_images_on), so no test waits for a build.
+#   3. Run the suite with nightly/run.sh: the pytest log, a JUnit report, and
+#      traces, screenshots, job and docker logs of each failure go to
+#      <e2e_results>/<date>/, `latest` points at the newest.
+#   4. Show the summary and the failed tests; fail if the suite failed.
+#
+# The rig's WhaP must already run the code to test: deploy it first (in
+# Semaphore, the WhaP deploy template, with this one run after it).
+- name: WhaP end-to-end tests
+  hosts: "{{ e2e_host | default('victor') }}"
+  gather_facts: false
+  vars:
+    e2e_repo_dir: "~/WhaP"                   # the checkout with whap/e2e/rig.toml
+    e2e_update: true                         # git pull --ff-only first
+    e2e_branch: ""                           # switch to this branch first; "" keeps the current one
+    e2e_build_images_on: "tycho"             # compute server for flask build-images; "" skips it
+    e2e_pytest_args: ""                      # e.g. "--matrix full" or "--force-reset"
+    e2e_results: "~/whap-e2e-results"
+  tasks:
+    - name: Update the checkout of the test code
+      when: e2e_update | bool
+      ansible.builtin.shell: |
+        set -eu
+        cd {{ e2e_repo_dir }}
+        git fetch --quiet origin
+        {% if e2e_branch %}
+        git checkout --quiet {{ e2e_branch | quote }}
+        {% endif %}
+        git merge --ff-only --quiet '@{u}'
+        git log --oneline -1
+      args:
+        executable: /bin/bash
+      register: e2e_checkout
+      changed_when: false
+
+    - name: The tests run at
+      when: e2e_update | bool
+      ansible.builtin.debug:
+        msg: "{{ e2e_checkout.stdout }}"
+
+    - name: Build the images on {{ e2e_build_images_on }} and push them to the registry
+      when: e2e_build_images_on | length > 0
+      ansible.builtin.command:
+        argv: [docker, exec, whap-worker, flask, build-images, --server, "{{ e2e_build_images_on }}"]
+      register: e2e_images
+      changed_when: "'changed: [' in e2e_images.stdout"
+      failed_when: false
+
+    - name: Building the images failed
+      when: e2e_images is not skipped and e2e_images.rc != 0
+      ansible.builtin.fail:
+        msg: "{{ (e2e_images.stdout_lines + e2e_images.stderr_lines)[-40:] }}"
+
+    - name: Run the end-to-end suite (takes 20 minutes and more; the log is on {{ inventory_hostname }})
+      # In the command, not `environment:`, so the shell expands the ~. uv
+      # usually lives in ~/.local/bin, which a non-login SSH session lacks.
+      ansible.builtin.shell: >-
+        PATH="$HOME/.local/bin:$PATH" WHAP_E2E_RESULTS={{ e2e_results }}
+        {{ e2e_repo_dir }}/whap/e2e/nightly/run.sh {{ e2e_pytest_args }}
+      args:
+        executable: /bin/bash
+      register: e2e_run
+      changed_when: false
+      failed_when: false
+
+    - name: Collect the failed tests
+      ansible.builtin.shell: |
+        grep -E '^(FAILED|ERROR) ' {{ e2e_results }}/latest/pytest.log || true
+      args:
+        executable: /bin/bash
+      register: e2e_failures
+      changed_when: false
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ e2e_run.stdout_lines[-1:] + e2e_failures.stdout_lines }}"
+
+    - name: The suite failed
+      when: e2e_run.rc != 0
+      ansible.builtin.fail:
+        msg: >-
+          pytest exited with {{ e2e_run.rc }}. Everything about each failure is in
+          {{ e2e_results }}/latest/ on {{ inventory_hostname }} (pytest.log, junit.xml,
+          test-results/).

@@ -207,6 +207,38 @@ sudo loginctl enable-linger "$USER"
 Results land in `~/whap-e2e-results/<date>/`, and `latest` points at the
 newest. `systemctl --user status whap-e2e` shows whether the last night passed.
 
+### Or from Semaphore
+
+`ci/e2e.yml` is the same run as one Ansible play, for a Semaphore task
+template: it updates the test checkout on victor, builds the images on tycho,
+runs `nightly/run.sh` and fails if the suite does. Everything stays as for a
+manual run: Semaphore connects to victor over SSH as the user who runs the
+tests, and the results land in `~/whap-e2e-results/` on victor.
+
+In the Semaphore project:
+
+1. **Key Store**: an SSH key that logs in to victor as that user (add its
+   public key to their `~/.ssh/authorized_keys`).
+2. **Repository**: this repository, the branch under test. Semaphore only
+   reads the playbook from it; the tests run from the checkout on victor.
+3. **Inventory** (static): `victor ansible_user=<user>`, with the key above.
+   If Semaphore runs in a container on victor, use an address it reaches
+   victor at.
+4. **Task Template**: playbook `whap/e2e/ci/e2e.yml`, with that inventory and
+   repository. Extra variables, all optional:
+   - `e2e_pytest_args`: e.g. `--matrix full`, `--force-reset`
+   - `e2e_branch`: switch victor's test checkout to this branch first
+   - `e2e_build_images_on`: the compute server (`tycho`); `""` skips building
+   - `e2e_repo_dir`, `e2e_results`: if not `~/WhaP` and `~/whap-e2e-results`
+
+   Survey variables make `e2e_pytest_args` and `e2e_branch` askable per run.
+5. **Schedule**: e.g. `0 2 * * *` for nights. Disable the systemd timer above
+   then, or the suite runs twice.
+
+The rig's WhaP must run the code under test: if Semaphore deploys WhaP too,
+schedule that deploy before the tests (e.g. at 1:30). By hand, outside
+Semaphore: `ansible-playbook -i victor, whap/e2e/ci/e2e.yml`.
+
 ## 7. Afterwards
 
 To turn victor back into a normal deployment:

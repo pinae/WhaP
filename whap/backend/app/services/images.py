@@ -20,6 +20,14 @@ BUILD_FILES = ("templates/Dockerfile.j2", "files/entrypoint.sh", "files/nopasswd
 TAG_LENGTH = 12
 
 
+def shared_image_name(role_name):
+    """The image a role's containers run, without registry and tag: the system part
+    of worker_<synced|local>_<system>, e.g. ubuntu2604_ssh. The synced_ and local_
+    roles of a system are built from the same files, so they share one image:
+    built, pushed and stored once."""
+    return role_name.split("_", 2)[2]
+
+
 def role_dir(role_name, roles_path=None):
     """The role's directory, as Ansible finds it in ANSIBLE_ROLES_PATH, or None."""
     if roles_path is None:

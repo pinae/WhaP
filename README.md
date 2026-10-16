@@ -245,10 +245,13 @@ Every container role (all `worker_*` roles except `worker_ollama`) has one
 image for all its users: the user, their IDs and their password are set up by
 the entrypoint when a container starts, so nothing about a user is in an
 image. The backend lists these roles in `SHARED_IMAGE_ROLES`
-(`compose_builder.py`).
+(`compose_builder.py`). A system's `synced_` and `local_` roles differ only in
+what they mount, so they share one image named after the system:
+`worker_synced_ubuntu2604_ssh` and `worker_local_ubuntu2604_ssh` both run
+`ubuntu2604_ssh`.
 
 An image's tag is a hash of the files it is built from (`Dockerfile.j2`,
-`entrypoint.sh`, `nopasswd`), e.g. `synced_ubuntu2604_ssh:7b4249e68c55`. Change
+`entrypoint.sh`, `nopasswd`), e.g. `ubuntu2604_ssh:efc7f8a4aecc`. Change
 a role's image and it gets a new tag; an image is never replaced under a tag in
 use, so a test rig's build can't change what production runs, and production
 reuses what the test rig built from the same files.
@@ -257,8 +260,12 @@ Before a container starts, its compute server makes sure it has the image
 (`common_tasks/tasks/shared_image.yml`): it uses its own copy, else pulls it
 from the registry, else builds it and pushes it to the registry for the other
 servers. If that push fails, the container still starts and the job log has a
-warning. Without a registry each server builds the images itself. The first
-build of an image takes a while, as it includes CUDA. To build the images
+warning. Without a registry each server builds the images itself. Builds use
+BuildKit (`docker buildx`): compute servers that build need Docker's
+`docker-buildx-plugin` package. After a build or pull the server removes what
+it no longer needs: the build directory, the build cache, and earlier versions
+of the image that no container, running or stopped, uses. The first build of
+an image takes a while, as it includes CUDA. To build the images
 before anyone waits for them, after changing a role or on a fresh registry
 (this also pushes images a server built but couldn't push):
 

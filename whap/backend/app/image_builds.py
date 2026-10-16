@@ -19,7 +19,16 @@ from . import db
 from .models import ComputeServer
 from .services.ansible_service import runner_path, write_job_inventory
 from .services.compose_builder import SHARED_IMAGE_ROLES, _docker_registry
-from .services.images import image_tag, role_dir
+from .services.images import image_tag, role_dir, shared_image_name
+
+
+def one_role_per_image(roles):
+    """The first of ``roles`` for each image they run: a system's synced_ and local_
+    roles share one image, which is built once."""
+    chosen = {}
+    for role in roles:
+        chosen.setdefault((shared_image_name(role), image_tag(role)), role)
+    return list(chosen.values())
 
 
 def build_playbook(hostname, roles, registry):
@@ -29,9 +38,10 @@ def build_playbook(hostname, roles, registry):
         'become': True,
         'gather_facts': False,
         'tasks': [{
-            'name': f"Image of {role}",
+            'name': f"Image {shared_image_name(role)} (of {role})",
             'ansible.builtin.include_role': {'name': role, 'tasks_from': 'build'},
-            'vars': {'service_cfg': {'image_name': role, 'whap_registry': registry, 'image_tag': image_tag(role)}},
+            'vars': {'service_cfg': {'image_name': role, 'shared_image': shared_image_name(role),
+                                     'whap_registry': registry, 'image_tag': image_tag(role)}},
         } for role in roles],
     }]
 
@@ -70,12 +80,11 @@ def build_images_command(hostname, roles):
     if unknown:
         raise click.ClickException(f"Not a role with a shared image here: {', '.join(unknown)}. "
                                    f"Known: {', '.join(available)}")
-    roles = list(roles) or available
+    roles = one_role_per_image(list(roles) or available)
 
     registry = _docker_registry()
     for role in roles:
-        name = role.removeprefix('worker_')
-        click.echo(f"  {(registry + '/') if registry else ''}{name}:{image_tag(role)}")
+        click.echo(f"  {(registry + '/') if registry else ''}{shared_image_name(role)}:{image_tag(role)}")
     if not registry:
         click.echo(f"No DOCKER_REGISTRY: the images are built on {hostname} only.")
 

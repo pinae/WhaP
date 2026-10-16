@@ -101,7 +101,8 @@ def test_shared_image_roles_run_their_tagged_image_with_the_user_as_environment(
                     password="Pa55-only-in-the-secret-file")
     svc = _service(parsed)
     assert "build" not in svc
-    assert svc["image"] == f"registry.example.com/{role.removeprefix('worker_')}:0123abcd4567"
+    # One image per system, shared by its synced_ and local_ role.
+    assert svc["image"] == f"registry.example.com/{role.split('_', 2)[2]}:0123abcd4567"
     # The user and the password reach the entrypoint at start, not the image.
     assert "USERNAME=alice" in svc["environment"]
     assert "USER_ID=1000" in svc["environment"]
@@ -118,8 +119,9 @@ def test_shared_image_roles_run_their_tagged_image_with_the_user_as_environment(
 
 def test_image_name_without_registry(monkeypatch):
     monkeypatch.delenv("DOCKER_REGISTRY", raising=False)
-    svc = _service(_build(role_name="worker_local_ubuntu2604_ssh", image_tag="0123abcd4567"))
-    assert svc["image"] == "local_ubuntu2604_ssh:0123abcd4567"
+    for role in ("worker_local_ubuntu2604_ssh", "worker_synced_ubuntu2604_ssh"):
+        svc = _service(_build(role_name=role, image_tag="0123abcd4567"))
+        assert svc["image"] == "ubuntu2604_ssh:0123abcd4567"
 
 
 ROLES_DIR = Path(__file__).resolve().parents[3] / "roles"

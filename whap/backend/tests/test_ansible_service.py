@@ -252,7 +252,8 @@ def test_the_role_learns_the_registry_the_compose_file_uses(app, db, monkeypatch
     tag = service_cfg["image_tag"]
     assert tag == image_tag("worker_local_ubuntu2510_ssh") and len(tag) == 12
     image = yaml_image(service_cfg["docker_compose_content"])
-    assert image == (f"{registry}/local_ubuntu2510_ssh:{tag}" if registry else f"local_ubuntu2510_ssh:{tag}")
+    assert service_cfg["shared_image"] == "ubuntu2510_ssh"
+    assert image == (f"{registry}/ubuntu2510_ssh:{tag}" if registry else f"ubuntu2510_ssh:{tag}")
 
 
 def yaml_image(compose_text):

@@ -9,8 +9,8 @@ from flask import current_app
 from .. import db
 from ..models import ComputeServer, UserSSHKey
 from ..services.local_file_service import get_gids_for_paths
-from .compose_builder import build_compose_file, _docker_registry
-from .images import image_tag
+from .compose_builder import SHARED_IMAGE_ROLES, build_compose_file, _docker_registry
+from .images import image_tag, shared_image_name
 from .. import socketio
 
 
@@ -266,6 +266,8 @@ def execute_ansible_job(job, event_callback):
         service_cfg_vars['docker_compose_content'] = quoted(compose_content)
         # The tag of the shared image; shared_image.yml pulls or builds it.
         service_cfg_vars['image_tag'] = quoted(tag)
+        if container.image_name in SHARED_IMAGE_ROLES:
+            service_cfg_vars['shared_image'] = quoted(shared_image_name(container.image_name))
         # The registry the compose file pulls shared images from; empty means the
         # role builds them on the compute server (common_tasks/shared_image.yml).
         service_cfg_vars['whap_registry'] = quoted(_docker_registry())

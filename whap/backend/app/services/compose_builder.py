@@ -3,6 +3,8 @@ import os
 from typing import List
 from flask import current_app, has_app_context
 
+from .images import shared_image_name
+
 
 def _docker_registry() -> str:
     """Registry prefix for image names. Empty means locally-built images."""
@@ -14,7 +16,8 @@ def _docker_registry() -> str:
 
 
 # Roles whose image is the same for every user: the entrypoint sets the user up
-# when the container starts. Their compose file names <type>_<system>:<tag>,
+# when the container starts. Their compose file names <system>:<tag> (one image
+# for a system's synced_ and local_ role, images.shared_image_name),
 # from DOCKER_REGISTRY if set; the tag is the hash of the role's build files
 # (images.image_tag). Other roles (custom ones elsewhere in ANSIBLE_ROLES_PATH)
 # build an image per user.
@@ -71,7 +74,7 @@ def build_compose_file(container_name: str,
         container_config["volumes"].append(additional_volume)
     if registry_container:
         registry = _docker_registry()
-        image = f"{container_type}_{system}:{image_tag}"
+        image = f"{shared_image_name(role_name)}:{image_tag}"
         container_config["image"] = f"{registry}/{image}" if registry else image
         container_config["environment"].append("USERNAME=" + user)
         container_config["environment"].append("USER_ID=" + str(user_id))

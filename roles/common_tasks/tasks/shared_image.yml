@@ -1,6 +1,7 @@
 # Makes sure this server has the image the role's containers share (the
 # entrypoint sets the user up when a container starts), under the name the
-# compose file uses: [<whap_registry>/]<image>:<image_tag>.
+# compose file uses: [<whap_registry>/]<image>:<image_tag>. A system's synced_
+# and local_ roles share one image (images.shared_image_name): ubuntu2604_ssh.
 #
 # image_tag is a hash of the role's build files, which WhaP computes
 # (app/services/images.py; it hashes the files copied below). A change to them
@@ -10,17 +11,21 @@
 #   1. The server has the image: nothing to do.
 #   2. With a registry (whap_registry, the backend's DOCKER_REGISTRY) that has
 #      it: pull it.
-#   3. Otherwise build it here, and push it to the registry if there is one,
-#      so other servers pull it instead of building it again.
+#   3. Otherwise build it here with BuildKit (docker buildx), and push it to the
+#      registry if there is one, so other servers pull it instead of building.
 #
 # Pushing is a step of its own, tried three times. When a container is being
 # started, a failed push is only a warning: the image is here, the container
 # can start. `flask build-images` (tasks/build.yml) sets shared_image_publish:
 # it fails if the push does, and pushes an image this server already has, so a
 # run after a failed push completes it without building again.
+#
+# After a build or pull, what is no longer needed goes: the build directory,
+# the build cache, and earlier versions of this image that no container (also
+# no stopped one) uses. The image itself stays: this server's containers run it.
 - name: "Provide the image of {{ service_cfg.image_name }}"
   vars:
-    shared_image: "{{ service_cfg.image_name | regex_replace('^worker_', '') }}"
+    shared_image: "{{ service_cfg.shared_image | default(service_cfg.image_name | regex_replace('^worker_[a-z]+_', '')) }}"
     registry: "{{ service_cfg.whap_registry | default('') }}"
     image_ref: "{{ (registry ~ '/') if registry else '' }}{{ shared_image }}"
     image_tag: "{{ service_cfg.image_tag | default('latest') }}"
@@ -52,6 +57,21 @@
     - name: "Build {{ image_ref }}:{{ image_tag }} here"
       when: not shared_image_now.images
       block:
+        - name: "Check that Docker can build with BuildKit (the buildx plugin)"
+          become: true
+          ansible.builtin.command: docker buildx version
+          register: shared_image_buildx
+          changed_when: false
+          failed_when: false
+
+        - name: "Docker's buildx plugin is missing on {{ inventory_hostname }}"
+          when: shared_image_buildx.rc != 0
+          ansible.builtin.fail:
+            msg: >-
+              Building images needs Docker's buildx plugin: install the package
+              docker-buildx-plugin (from Docker's apt repository) on {{ inventory_hostname }}.
+              {{ shared_image_buildx.stderr | default('') }}
+
         - name: "Ensure {{ build_dir }} exists"
           become: true
           ansible.builtin.file:
@@ -77,14 +97,16 @@
 
         - name: "Build {{ image_ref }}:{{ image_tag }} (the first time takes a while: CUDA)"
           become: true
-          community.docker.docker_image:
+          community.docker.docker_image_build:
             name: "{{ image_ref }}"
             tag: "{{ image_tag }}"
-            source: build
-            build:
-              path: "{{ build_dir }}"
-              dockerfile: Dockerfile
-              pull: true  # the newest base image, not one cached here
+            path: "{{ build_dir }}"
+            dockerfile: Dockerfile
+            pull: true  # the newest base image, not one cached here
+            labels:
+              # Which image and version this is, for the clean-up below.
+              whap.image: "{{ shared_image }}"
+              whap.image-tag: "{{ image_tag }}"
           register: shared_image_build
 
     # Built here, or (publishing) here but not just pulled from the registry.
@@ -110,3 +132,38 @@
       when: shared_image_push is failed
       ansible.builtin.debug:
         msg: "{{ shared_image_push.msg | default('') }}"
+
+    - name: "Clean up after getting {{ image_ref }}:{{ image_tag }}"
+      when: shared_image_build is changed or shared_image_pull is changed
+      block:
+        - name: "Remove the build directory {{ build_dir }}"
+          become: true
+          ansible.builtin.file:
+            path: "{{ build_dir }}"
+            state: absent
+
+        - name: "Remove the build cache"
+          when: shared_image_build is changed
+          become: true
+          community.docker.docker_prune:
+            builder_cache: true
+            builder_cache_all: true
+          register: shared_image_cache_pruned
+
+        - name: "Remove earlier versions of {{ shared_image }} that no container uses"
+          become: true
+          community.docker.docker_prune:
+            images: true
+            images_filters:
+              dangling: false
+              label: "whap.image={{ shared_image }}"
+              label!: "whap.image-tag={{ image_tag }}"
+          register: shared_image_pruned
+
+        - name: "Report the space freed"
+          ansible.builtin.debug:
+            msg: >-
+              Build cache and earlier versions: {{
+              (((shared_image_pruned.images_space_reclaimed | default(0))
+                + (shared_image_cache_pruned.builder_cache_space_reclaimed | default(0)))
+               / 1024 / 1024 / 1024) | round(1) }} GB freed

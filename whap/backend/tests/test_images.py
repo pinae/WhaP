@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from app.services.images import BUILD_FILES, image_tag, role_dir
+from app.services.images import BUILD_FILES, image_tag, role_dir, shared_image_name
 
 ROLES_DIR = Path(__file__).resolve().parents[3] / "roles"
 
@@ -63,6 +63,14 @@ def test_the_role_is_found_as_ansible_finds_it(tmp_path):
 
 def test_a_role_that_is_not_here_is_latest(tmp_path):
     assert image_tag("worker_missing", str(tmp_path)) == "latest"
+
+
+@pytest.mark.parametrize("role, image", [
+    ("worker_synced_ubuntu2604_ssh", "ubuntu2604_ssh"), ("worker_local_ubuntu2604_ssh", "ubuntu2604_ssh"),
+    ("worker_local_cuda-11-7_ubuntu2204_ssh", "cuda-11-7_ubuntu2204_ssh"),
+    ("worker_synced_nvidia_pytorch1906", "nvidia_pytorch1906")])
+def test_a_systems_roles_share_one_image(role, image):
+    assert shared_image_name(role) == image
 
 
 def test_each_system_has_its_own_tag():
@@ -126,25 +134,31 @@ def test_build_images_builds_every_shared_image_on_the_server(app, db, builds, m
     [play] = run["playbook"]
     assert play["hosts"] == "tycho"
     roles = [task["ansible.builtin.include_role"]["name"] for task in play["tasks"]]
-    assert sorted(roles) == sorted(SHARED_IMAGE_ROLES)
+    # Each image once: a system's synced_ and local_ roles share theirs.
+    images = {shared_image_name(role) for role in SHARED_IMAGE_ROLES}
+    assert sorted(shared_image_name(role) for role in roles) == sorted(images)
+    assert "ubuntu2604_ssh" in images and len(images) == 6
     for task in play["tasks"]:
         role = task["ansible.builtin.include_role"]["name"]
         assert task["ansible.builtin.include_role"]["tasks_from"] == "build"
-        assert task["vars"]["service_cfg"] == {"image_name": role, "whap_registry": "registry.example.org",
+        assert task["vars"]["service_cfg"] == {"image_name": role, "shared_image": shared_image_name(role),
+                                               "whap_registry": "registry.example.org",
                                                "image_tag": image_tag(role)}
-        assert f"registry.example.org/{role.removeprefix('worker_')}:{image_tag(role)}" in result.output
+        assert f"registry.example.org/{shared_image_name(role)}:{image_tag(role)}" in result.output
     assert len(run["hosts_files"]) == 1 and not run["quiet"]
     inventory = Path(app.config["ANSIBLE_PROJECT_DIR"]) / "inventory"
     assert not list(inventory.glob("99_dynamic_hosts_job_images_*")), "the run's host file is removed"
 
 
-def test_build_images_builds_the_roles_named(app, db, builds, make_server):
+def test_build_images_builds_the_roles_named_in_their_order(app, db, builds, make_server):
     make_server(hostname="tycho")
     result = app.test_cli_runner().invoke(
-        args=["build-images", "--server", "tycho", "worker_synced_ubuntu2604_ssh"])
+        args=["build-images", "--server", "tycho", "worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2604_ssh",
+              "worker_local_ubuntu2404_ssh"])
     assert result.exit_code == 0, result.output
     tasks = builds[0]["playbook"][0]["tasks"]
-    assert [t["ansible.builtin.include_role"]["name"] for t in tasks] == ["worker_synced_ubuntu2604_ssh"]
+    assert [t["ansible.builtin.include_role"]["name"] for t in tasks] == \
+        ["worker_synced_ubuntu2604_ssh", "worker_local_ubuntu2404_ssh"], "the 26.04 image once, then 24.04"
 
 
 def test_build_images_refuses_an_unknown_server_or_role(app, db, builds, make_server):
@@ -195,3 +209,14 @@ def test_build_images_says_where_to_run_it_if_it_cannot_write(app, db, builds, m
     assert result.exit_code != 0
     assert f"{runner_dir} is not writable here" in result.output and "whap-worker" in result.output
     assert builds == []
+
+
+def test_images_are_built_with_buildkit_and_labelled_for_the_clean_up():
+    """docker_image's builds use Docker's legacy builder, which Docker deprecated; the
+    clean-up removes earlier versions of an image by these labels."""
+    tasks = yaml.safe_load((ROLES_DIR / "common_tasks" / "tasks" / "shared_image.yml").read_text())
+    text = (ROLES_DIR / "common_tasks" / "tasks" / "shared_image.yml").read_text()
+    build = next(t for t in tasks[0]["block"] if t["name"].startswith("Build"))
+    [step] = [t for t in build["block"] if "community.docker.docker_image_build" in t]
+    assert set(step["community.docker.docker_image_build"]["labels"]) == {"whap.image", "whap.image-tag"}
+    assert "source: build" not in text
