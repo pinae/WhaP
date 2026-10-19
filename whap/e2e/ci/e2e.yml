@@ -1,53 +1,80 @@
-# The end-to-end suite as one Ansible run: for a Semaphore task template (see
-# ../RUNNING-ON-THE-RIG.md, "Semaphore"), or by hand:
+# The end-to-end suite as one Ansible run: for a Semaphore task template (set
+# up as README.md here says), or by hand:
 #
-#   ansible-playbook -i victor, whap/e2e/ci/e2e.yml -e e2e_pytest_args="--matrix full"
+#   ansible-playbook -i victor, whap/e2e/ci/e2e.yml -e e2e_branch=my-feature -e e2e_pytest_args="--matrix full"
 #
 # It runs on the machine that runs the tests (victor), as the user whose
 # checkout, rig.toml and docker group membership the manual runs use. That
 # machine needs nothing new: Semaphore only connects to it over SSH.
 #
-#   1. Bring the checkout of the test code up to date (e2e_update).
-#   2. Build the images on the compute server and push them to the registry
+#   1. Check out the branch to test in the test checkout (e2e_branch, main by
+#      default) and bring it up to date (e2e_update).
+#   2. Check that the rig's WhaP (e2e_whap_dir) runs the same commit: tests of
+#      one version against a WhaP of another fail in ways that mean nothing.
+#   3. Build the images on the compute server and push them to the registry
 #      (e2e_build_images_on), so no test waits for a build.
-#   3. Run the suite with nightly/run.sh: the pytest log, a JUnit report, and
+#   4. Run the suite with nightly/run.sh: the pytest log, a JUnit report, and
 #      traces, screenshots, job and docker logs of each failure go to
 #      <e2e_results>/<date>/, `latest` points at the newest.
-#   4. Show the summary and the failed tests; fail if the suite failed.
+#   5. Show the summary and the failed tests; fail if the suite failed.
 #
-# The rig's WhaP must already run the code to test: deploy it first (in
-# Semaphore, the WhaP deploy template, with this one run after it).
+# The rig's WhaP must already run the code to test: deploy that branch first
+# (in Semaphore, the WhaP deploy template, scheduled before this one).
 - name: WhaP end-to-end tests
   hosts: "{{ e2e_host | default('victor') }}"
   gather_facts: false
   vars:
+    e2e_branch: "main"                       # the branch to test; "" leaves the checkout's own
+    e2e_update: true                         # fetch it and fast-forward to origin's
     e2e_repo_dir: "~/WhaP"                   # the checkout with whap/e2e/rig.toml
-    e2e_update: true                         # git pull --ff-only first
-    e2e_branch: ""                           # switch to this branch first; "" keeps the current one
+    e2e_whap_dir: "/docker/whap/WhaP"        # the rig's WhaP: the checkout its images are built from
+    e2e_allow_version_mismatch: false        # true: test even if the two differ
     e2e_build_images_on: "tycho"             # compute server for flask build-images; "" skips it
     e2e_pytest_args: ""                      # e.g. "--matrix full" or "--force-reset"
     e2e_results: "~/whap-e2e-results"
   tasks:
-    - name: Update the checkout of the test code
-      when: e2e_update | bool
+    - name: Check out {{ e2e_branch or 'the current branch' }} in the test checkout
       ansible.builtin.shell: |
         set -eu
         cd {{ e2e_repo_dir }}
+        {% if e2e_update | bool %}
         git fetch --quiet origin
+        {% endif %}
         {% if e2e_branch %}
+        # A branch only on origin yet becomes a local one that tracks it.
         git checkout --quiet {{ e2e_branch | quote }}
         {% endif %}
+        {% if e2e_update | bool %}
         git merge --ff-only --quiet '@{u}'
-        git log --oneline -1
+        {% endif %}
+        echo "$(git rev-parse HEAD) $(git rev-parse --abbrev-ref HEAD)"
       args:
         executable: /bin/bash
       register: e2e_checkout
       changed_when: false
 
-    - name: The tests run at
-      when: e2e_update | bool
-      ansible.builtin.debug:
-        msg: "{{ e2e_checkout.stdout }}"
+    - name: Find the commit the rig's WhaP runs
+      ansible.builtin.command:
+        # safe.directory: the checkout may belong to another user.
+        argv: [git, -c, "safe.directory=*", -C, "{{ e2e_whap_dir }}", rev-parse, HEAD]
+      register: e2e_whap_commit
+      changed_when: false
+      failed_when: false
+
+    - name: The tests and the rig's WhaP must be the same version
+      vars:
+        tests_commit: "{{ e2e_checkout.stdout.split()[0] }}"
+        tests_branch: "{{ e2e_checkout.stdout.split()[1] }}"
+      ansible.builtin.assert:
+        that: e2e_whap_commit.stdout == tests_commit
+        fail_msg: >-
+          The tests are {{ tests_branch }} at {{ tests_commit[:7] }}, but the rig's WhaP
+          ({{ e2e_whap_dir }}) runs {{ e2e_whap_commit.stdout[:7] }}. Deploy {{ tests_branch }}
+          to the rig first, or set e2e_allow_version_mismatch=true.
+        success_msg: "Testing {{ tests_branch }} at {{ tests_commit[:7] }}, which the rig's WhaP runs."
+      when:
+        - e2e_whap_commit.rc == 0
+        - not (e2e_allow_version_mismatch | bool)
 
     - name: Build the images on {{ e2e_build_images_on }} and push them to the registry
       when: e2e_build_images_on | length > 0

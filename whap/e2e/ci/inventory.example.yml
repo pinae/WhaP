@@ -1,0 +1,17 @@
+# Inventory for ci/e2e.yml: the machine that runs the end-to-end tests.
+# In Semaphore, paste it into an inventory of type "Static YAML" and fill in the
+# two values (see README.md here). The host must be called victor, or set
+# e2e_host to its name.
+all:
+  hosts:
+    victor:
+      # victor's address as Semaphore reaches it. If Semaphore runs in a Docker
+      # container on victor, "victor" or "localhost" may not mean the machine
+      # itself: use victor's LAN address.
+      ansible_host: 192.0.2.10
+      # The user who runs the tests by hand: owns ~/WhaP with whap/e2e/rig.toml,
+      # is in the docker group, and has uv in ~/.local/bin.
+      ansible_user: pina
+      # Accept victor's host key the first time instead of failing: Semaphore
+      # has no known_hosts for it yet (and loses it if its container is recreated).
+      ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
