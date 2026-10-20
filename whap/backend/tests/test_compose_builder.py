@@ -80,7 +80,7 @@ def test_a_custom_role_builds_an_image_per_user():
     svc = _service(_build(role_name=CUSTOM_ROLE))
     assert "image" not in svc
     build = svc["build"]
-    assert build["context"] == f"/docker/{CUSTOM_ROLE}-alice-proj/build/"
+    assert build["context"] == "./build/"  # next to the compose file, on the compute server
     assert build["dockerfile"] == "Dockerfile"
     assert build["args"]["USERNAME"] == "alice"
     assert build["args"]["USER_ID"] == "1000"
@@ -179,3 +179,17 @@ def test_role_name_must_have_two_underscores():
             network_name="testnet",
             ipv4_address="192.168.1.10",
         )
+
+
+def test_the_roles_put_the_containers_files_in_the_compute_servers_own_directory():
+    """service_cfg.directory is computed by WhaP from its own ANSIBLE_CONTAINER_BASE_DIR,
+    in a deployment the storage server's docker_dir: on a compute server with another
+    docker_dir the password file had nowhere to go. The roles use container_dir, from
+    the compute server's docker_dir (common_tasks/build_directory.yml)."""
+    task_files = [*ROLES_DIR.glob("worker_*/tasks/*.yml"), *(ROLES_DIR / "common_tasks" / "tasks").glob("*.yml")]
+    for path in task_files:
+        for line in path.read_text().splitlines():
+            if "service_cfg.directory" in line and not line.lstrip().startswith("#"):
+                assert "container_dir | default(service_cfg.directory)" in line, f"{path}: {line.strip()}"
+    build_directory = (ROLES_DIR / "common_tasks" / "tasks" / "build_directory.yml").read_text()
+    assert 'container_dir: "{{ docker_dir }}/' in build_directory

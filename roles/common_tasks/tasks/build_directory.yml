@@ -7,19 +7,27 @@
     group: "{{ service_cfg.group }}"
     mode: "775"
 
-- name: "Ensure {{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }} exists"
+# The container's directory (compose file, password file) on this compute
+# server, from this server's docker_dir. Not service_cfg.directory: WhaP
+# computes that from its own ANSIBLE_CONTAINER_BASE_DIR, the storage server's
+# docker_dir in a deployment, which a compute server needn't have.
+- name: "The container's directory on {{ inventory_hostname }}"
+  ansible.builtin.set_fact:
+    container_dir: "{{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}"
+
+- name: "Ensure {{ container_dir }} exists"
   become: true
   file:
-    path: "{{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}"
+    path: "{{ container_dir }}"
     state: directory
     owner: "{{ service_cfg.owner }}"
     group: "{{ service_cfg.group }}"
     mode: "775"
 
-- name: "Ensure {{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build exists"
+- name: "Ensure {{ container_dir }}/build exists"
   become: true
   file:
-    path: "{{ docker_dir }}/{{ service_cfg.image_name }}-{{ service_cfg.user }}-{{ service_cfg.project_name }}/build"
+    path: "{{ container_dir }}/build"
     state: directory
     owner: "{{ service_cfg.owner }}"
     group: "{{ service_cfg.group }}"

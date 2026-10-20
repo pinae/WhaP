@@ -47,7 +47,7 @@
   no_log: true  # the content is the container password
   ansible.builtin.copy:
     content: "{{ service_cfg.password }}"
-    dest: "{{ service_cfg.directory }}/secret_password.txt"
+    dest: "{{ container_dir | default(service_cfg.directory) }}/secret_password.txt"
     mode: '0600'
 
 - ansible.builtin.import_role:

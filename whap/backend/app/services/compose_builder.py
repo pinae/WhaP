@@ -87,7 +87,10 @@ def build_compose_file(container_name: str,
         }]
     else:
         container_config["build"] = {
-            "context": "/docker/" + role_name + "-" + user + "-" + project_name + "/build/",
+            # Relative to the compose file, which lies in the container's directory
+            # on the compute server (common_tasks/build_directory.yml): its own
+            # docker_dir, whatever WhaP's ANSIBLE_CONTAINER_BASE_DIR says.
+            "context": "./build/",
             "dockerfile": "Dockerfile",
             "args": {
                 "USERNAME": user,
